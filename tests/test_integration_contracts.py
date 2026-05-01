@@ -183,3 +183,5 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
     assert result["status"] == "ok"
     payload = runtime.store.load_cycle(ranked.cycle_id)
     assert payload["feedback_events"][0]["disposition"] == DraftOutcomeDisposition.SENT_AS_IS.value
+    assert payload["frontier_candidate_ids"]
+    assert payload["accepted_artifact_version"]["artifact_key"] == "reply_ranker_policy"
