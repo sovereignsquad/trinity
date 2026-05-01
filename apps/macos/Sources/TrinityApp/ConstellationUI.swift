@@ -1,16 +1,25 @@
+import AppKit
 import SwiftUI
 
 enum TrinityPalette {
-    static let canvas = Color(red: 0.96, green: 0.94, blue: 0.90)
-    static let panel = Color.white.opacity(0.88)
-    static let panelAlt = Color(red: 0.92, green: 0.88, blue: 0.82)
-    static let border = Color(red: 0.84, green: 0.80, blue: 0.73)
-    static let textPrimary = Color(red: 0.13, green: 0.11, blue: 0.08)
-    static let textSecondary = Color(red: 0.37, green: 0.33, blue: 0.28)
-    static let accent = Color(red: 0.72, green: 0.35, blue: 0.17)
-    static let success = Color(red: 0.16, green: 0.48, blue: 0.28)
-    static let warning = Color(red: 0.66, green: 0.42, blue: 0.0)
-    static let info = Color(red: 0.17, green: 0.43, blue: 0.63)
+    static let canvas = adaptiveTrinityColor(light: NSColor(red: 0.98, green: 0.94, blue: 0.93, alpha: 1), dark: NSColor(red: 0.11, green: 0.07, blue: 0.08, alpha: 1))
+    static let panel = adaptiveTrinityColor(light: NSColor.white.withAlphaComponent(0.90), dark: NSColor(red: 0.17, green: 0.10, blue: 0.11, alpha: 0.96))
+    static let panelAlt = adaptiveTrinityColor(light: NSColor(red: 0.95, green: 0.87, blue: 0.86, alpha: 1), dark: NSColor(red: 0.22, green: 0.13, blue: 0.14, alpha: 1))
+    static let border = adaptiveTrinityColor(light: NSColor(red: 0.89, green: 0.74, blue: 0.72, alpha: 1), dark: NSColor(red: 0.33, green: 0.19, blue: 0.20, alpha: 1))
+    static let textPrimary = adaptiveTrinityColor(light: NSColor(red: 0.22, green: 0.08, blue: 0.09, alpha: 1), dark: NSColor(red: 0.98, green: 0.92, blue: 0.91, alpha: 1))
+    static let textSecondary = adaptiveTrinityColor(light: NSColor(red: 0.47, green: 0.26, blue: 0.26, alpha: 1), dark: NSColor(red: 0.85, green: 0.72, blue: 0.71, alpha: 1))
+    static let accent = adaptiveTrinityColor(light: NSColor(red: 0.77, green: 0.17, blue: 0.19, alpha: 1), dark: NSColor(red: 0.93, green: 0.32, blue: 0.34, alpha: 1))
+    static let success = adaptiveTrinityColor(light: NSColor(red: 0.16, green: 0.48, blue: 0.28, alpha: 1), dark: NSColor(red: 0.31, green: 0.77, blue: 0.48, alpha: 1))
+    static let warning = adaptiveTrinityColor(light: NSColor(red: 0.66, green: 0.42, blue: 0.0, alpha: 1), dark: NSColor(red: 0.88, green: 0.63, blue: 0.20, alpha: 1))
+    static let info = adaptiveTrinityColor(light: NSColor(red: 0.55, green: 0.22, blue: 0.24, alpha: 1), dark: NSColor(red: 0.95, green: 0.57, blue: 0.58, alpha: 1))
+}
+
+private func adaptiveTrinityColor(light: NSColor, dark: NSColor) -> Color {
+    Color(
+        nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        }
+    )
 }
 
 struct TrinityShell<Content: View>: View {

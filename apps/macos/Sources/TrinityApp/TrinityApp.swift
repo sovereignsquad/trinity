@@ -1,5 +1,27 @@
 import SwiftUI
 
+private enum TrinityThemeMode: String, CaseIterable {
+    case system
+    case light
+    case dark
+
+    var label: String {
+        switch self {
+        case .system: "Follow System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
 private enum TrinityPage: String, CaseIterable, Identifiable {
     case overview
     case timeline
@@ -29,11 +51,28 @@ private enum TrinityPage: String, CaseIterable, Identifiable {
 
 @main
 struct TrinityApp: App {
+    @AppStorage("trinity.theme.mode") private var themeModeRawValue = TrinityThemeMode.system.rawValue
+
+    private var themeMode: TrinityThemeMode {
+        get { TrinityThemeMode(rawValue: themeModeRawValue) ?? .system }
+        set { themeModeRawValue = newValue.rawValue }
+    }
+
     var body: some Scene {
         WindowGroup("Trinity") {
             ContentView()
+                .preferredColorScheme(themeMode.preferredColorScheme)
         }
         .defaultSize(width: 980, height: 680)
+        .commands {
+            CommandMenu("Theme") {
+                ForEach(TrinityThemeMode.allCases, id: \.rawValue) { mode in
+                    Button(mode.label) {
+                        themeModeRawValue = mode.rawValue
+                    }
+                }
+            }
+        }
     }
 }
 
