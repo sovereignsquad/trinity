@@ -115,7 +115,7 @@ The repository currently implements these foundational runtime layers:
 
 Relevant docs:
 
-- [Trinity Overview](./docs/TRINITY_OVERVIEW.md)
+- [{trinity} Overview](./docs/TRINITY_OVERVIEW.md)
 - [Evidence Ingestion Contract](./docs/EVIDENCE_INGESTION_CONTRACT.md)
 - [Candidate Lifecycle Contract](./docs/CANDIDATE_LIFECYCLE_CONTRACT.md)
 - [Stage Execution Contract](./docs/STAGE_EXECUTION_CONTRACT.md)

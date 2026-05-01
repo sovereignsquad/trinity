@@ -1,4 +1,4 @@
-# Trinity Execution Backlog
+# {trinity} Execution Backlog
 
 ## Objective
 
@@ -21,13 +21,13 @@ Deliver the canonical runtime boundary for cross-project development while keepi
 ### M3. Product Embedding
 
 - [x] Add an application-facing adapter surface for `{reply}` integration.
-- [ ] Add shadow-mode fixtures comparing legacy `{reply}` drafting behavior to Trinity candidate outputs.
+- [ ] Add shadow-mode fixtures comparing legacy `{reply}` drafting behavior to `{trinity}` candidate outputs.
 
 ## Active Issue Queue
 
 ### Closed
 
-- `TRINITY-001` Missing first-class Reply adapter contract
+- `TRINITY-001` Missing first-class `{reply}` adapter contract
   The repository described downstream embedding but did not ship an explicit product-facing reply contract. Fixed by adding `core/trinity_core/schemas/integration.py` and this contract document.
 
 - `TRINITY-002` Frontier ranking lived only in prose
@@ -38,8 +38,8 @@ Deliver the canonical runtime boundary for cross-project development while keepi
 
 ### Open
 
-- `TRINITY-005` Reply shadow comparison fixtures
-  Trinity now exposes the local runtime surface and persistent cycle/export artifacts, but the repo still lacks dedicated fixtures proving how legacy Reply drafts compare to Trinity outputs on the same thread.
+- `TRINITY-005` `{reply}` shadow comparison fixtures
+  `{trinity}` now exposes the local runtime surface and persistent cycle/export artifacts, but the repo still lacks dedicated fixtures proving how legacy `{reply}` drafts compare to `{trinity}` outputs on the same thread.
 
 ## Dependencies
 

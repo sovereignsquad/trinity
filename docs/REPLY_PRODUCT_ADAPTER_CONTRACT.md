@@ -1,4 +1,4 @@
-# Reply Product Adapter Contract
+# {reply} Product Adapter Contract
 
 ## Purpose
 
@@ -20,7 +20,7 @@ The contract is owned by `{trinity}` because `{trinity}` owns the canonical runt
 
 ## Payload Families
 
-### 1. Evidence Into Trinity
+### 1. Evidence Into {trinity}
 
 `ReplyEvidenceEnvelope` carries:
 
@@ -33,7 +33,7 @@ The contract is owned by `{trinity}` because `{trinity}` owns the canonical runt
 - optional `external_message_id`
 - optional string metadata
 
-### 2. Draft Candidates Out Of Trinity
+### 2. Draft Candidates Out Of {trinity}
 
 `ReplyDraftCandidate` carries:
 
@@ -46,7 +46,7 @@ The contract is owned by `{trinity}` because `{trinity}` owns the canonical runt
 - canonical `CandidateScores`
 - `source_evidence_ids`
 
-### 3. Feedback Back Into Trinity
+### 3. Feedback Back Into {trinity}
 
 `ReplyFeedbackEvent` carries:
 
@@ -61,4 +61,4 @@ The contract is owned by `{trinity}` because `{trinity}` owns the canonical runt
 
 - `{reply}` owns channels, operator UX, send flows, and product-local storage.
 - `{trinity}` owns candidate vocabulary, ranking semantics, and feedback meaning.
-- `{train}` may optimize bounded Trinity artifacts derived from these runtime concepts, but it does not define them.
+- `{train}` may optimize bounded `{trinity}` artifacts derived from these runtime concepts, but it does not define them.
