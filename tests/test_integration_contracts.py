@@ -185,3 +185,41 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
     assert payload["feedback_events"][0]["disposition"] == DraftOutcomeDisposition.SENT_AS_IS.value
     assert payload["frontier_candidate_ids"]
     assert payload["accepted_artifact_version"]["artifact_key"] == "reply_ranker_policy"
+
+
+def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path) -> None:
+    runtime = ReplyRuntime(
+        store=RuntimeCycleStore(
+            RuntimeCyclePaths(
+                root_dir=tmp_path,
+                cycles_dir=tmp_path / "cycles",
+                exports_dir=tmp_path / "exports",
+            )
+        )
+    )
+    runtime.store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    runtime.store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+    snapshot = ThreadSnapshot(
+        company_id=uuid4(),
+        thread_ref="reply:email:alice@example.com",
+        channel="email",
+        contact_handle="alice@example.com",
+        latest_inbound_text="Can you send me the update today?",
+        requested_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+        messages=(
+            ThreadMessageSnapshot(
+                message_id="latest-inbound",
+                role=ThreadMessageRole.CONTACT,
+                text="Can you send me the update today?",
+                occurred_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+                channel="email",
+                source="email",
+                handle="alice@example.com",
+            ),
+        ),
+    )
+
+    ranked = runtime.suggest(snapshot)
+
+    assert len(ranked.drafts) == 3
+    assert all(draft.draft_text for draft in ranked.drafts)

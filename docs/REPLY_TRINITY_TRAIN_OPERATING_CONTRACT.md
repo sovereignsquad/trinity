@@ -45,7 +45,7 @@ Prove one narrow, replayable integration spine without collapsing repository own
 
 ## Guardrails
 
-1. `reply` must preserve its legacy draft path as fallback.
+1. shipped `reply` builds must route drafting through `trinity` only.
 2. `trinity` must not read Reply SQLite stores directly.
 3. `train` must not optimize Reply product orchestration.
 4. exported traces must include artifact version provenance.
