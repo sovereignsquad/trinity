@@ -8,18 +8,19 @@ This is the current status document for the repository.
 
 Phase:
 
-- repository bootstrap
 - workflow contract establishment
 - macOS-first development baseline
+- first runtime schema delivery
 
 Primary active issue:
 
-- no issue exists yet; bootstrap the board and define the delivery sequence
+- `#6` `{trinity}: Build frontier selection, suppression, merge, and ranking semantics`
 
 ## Current Reality
 
 The repository currently has:
 
+- GitHub project board and initial issue roadmap
 - core operating docs
 - coding standards
 - definition of done
@@ -27,6 +28,13 @@ The repository currently has:
 - macOS development baseline
 - Python workspace scaffold
 - minimal SwiftUI shell scaffold
+- evidence ingestion schema and deterministic ingestion helpers
+- evidence ingestion contract documentation
+- candidate lifecycle schema and transition helpers
+- candidate lifecycle contract documentation
+- stage execution contracts and deterministic stage orchestration
+- stage execution contract documentation
+- consolidated Trinity overview documentation
 
 ## Verified Working
 
@@ -40,19 +48,18 @@ Verified locally:
 
 Still missing on the critical path:
 
-- GitHub project board
-- detailed issue roadmap
-- workflow schemas
+- frontier selection, suppression, merge, and ranking semantics
 - local evidence and feedback models
+- tenant-bound persistence and cycle orchestration
 - real macOS operator screens
 - `{reply}` adapter contract
 
 ## Immediate Next Steps
 
-1. create the GitHub project board
-2. define detailed implementation issues
-3. implement workflow schemas and storage contracts
-4. build the first operator shell slices
+1. implement frontier selection, suppression, merge, and ranking semantics
+2. build tenant-bound persistence and cycle orchestration
+3. build the first operator shell slices
+4. add the `{reply}` adapter contract against the runtime seams
 
 ## Resume Point
 
