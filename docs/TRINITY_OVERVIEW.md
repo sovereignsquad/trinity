@@ -440,6 +440,22 @@ The repository still does not fully implement:
 
 These are planned next steps, not current delivered behavior.
 
+## Runtime Data Placement
+
+The repository working tree is for development assets.
+
+Live runtime state should not be stored in the repository by default.
+
+When persistence is implemented, runtime data should resolve to machine-local app storage outside the repo, with macOS defaults such as:
+
+- `~/Library/Application Support/Trinity/`
+- `~/Library/Caches/Trinity/`
+- `~/Library/Logs/Trinity/`
+
+See:
+
+- [docs/RUNTIME_STORAGE_POLICY.md](/Users/Shared/Projects/trinity/docs/RUNTIME_STORAGE_POLICY.md)
+
 ## Practical Short Definition
 
 `{trinity}` is a local-first, product-neutral runtime for transforming evidence into a continuously refreshed, auditable, high-utility frontier of knowledge and action candidates.

@@ -25,6 +25,8 @@ Implemented:
 - deterministic tests for stage wiring, failure surfaces, and evaluator rework mapping
 - stage execution contract documentation
 - consolidated `docs/TRINITY_OVERVIEW.md` for fast repository orientation
+- explicit `docs/RUNTIME_STORAGE_POLICY.md` defining repo-vs-runtime-data separation
+- runtime storage path resolver that rejects repo-local app state directories by default
 - status and handover updates advancing the repo to issue `#6`
 
 ### What Was Verified

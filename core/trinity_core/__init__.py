@@ -1,5 +1,6 @@
 """Core runtime package for Trinity."""
 
+from trinity_core.ops import RuntimeStoragePaths, resolve_runtime_storage_paths
 from trinity_core.schemas import (
     CandidateLineage,
     CandidateRecord,
@@ -69,7 +70,9 @@ __all__ = [
     "RawRefinerResult",
     "RefinerDisposition",
     "RefinerExecutionInput",
+    "resolve_runtime_storage_paths",
     "ReworkRoute",
+    "RuntimeStoragePaths",
     "StageExecutionResult",
     "StageFailure",
     "canonicalize_content",

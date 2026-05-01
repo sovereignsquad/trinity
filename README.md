@@ -110,6 +110,8 @@ The repository currently implements these foundational runtime layers:
    Explicit candidate types, lifecycle states, legal transitions, lineage preservation, and rework routes.
 3. Stage execution
    Separate generator, refiner, and evaluator contracts with deterministic normalization and explicit failure surfacing.
+4. Runtime storage resolution
+   Code-level enforcement that default app data, cache, and log directories resolve outside the repository working tree.
 
 Relevant docs:
 
@@ -117,6 +119,7 @@ Relevant docs:
 - [Evidence Ingestion Contract](./docs/EVIDENCE_INGESTION_CONTRACT.md)
 - [Candidate Lifecycle Contract](./docs/CANDIDATE_LIFECYCLE_CONTRACT.md)
 - [Stage Execution Contract](./docs/STAGE_EXECUTION_CONTRACT.md)
+- [Runtime Storage Policy](./docs/RUNTIME_STORAGE_POLICY.md)
 
 ## What Is Planned Next
 
@@ -184,6 +187,7 @@ Primary orientation and operating docs:
 - [docs/BRAIN.md](./docs/BRAIN.md)
 - [docs/TRINITY_FORMAL_PRODUCTION_DEFINITION.md](./docs/TRINITY_FORMAL_PRODUCTION_DEFINITION.md)
 - [docs/TRINITY_PSEUDOCODE_SPECIFICATION.md](./docs/TRINITY_PSEUDOCODE_SPECIFICATION.md)
+- [docs/RUNTIME_STORAGE_POLICY.md](./docs/RUNTIME_STORAGE_POLICY.md)
 - [docs/STATUS.md](./docs/STATUS.md)
 - [docs/HANDOVER.md](./docs/HANDOVER.md)
 

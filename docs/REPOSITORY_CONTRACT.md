@@ -62,6 +62,29 @@ This layer must consume runtime contracts, not redefine them.
 
 Holds deterministic tests for repository-level and runtime-level behavior.
 
+## Runtime Data Boundary
+
+The repository is not the home for live application state.
+
+Source-controlled development assets belong in the repository.
+
+Runtime data belongs in machine-local app data locations outside the repository working tree.
+
+That includes:
+
+- evidence stores
+- candidate stores
+- feedback memory
+- logs
+- caches
+- model artifacts
+- local operator state
+- execution traces
+
+For the storage policy and recommended macOS locations, see:
+
+- `docs/RUNTIME_STORAGE_POLICY.md`
+
 ## Boundary Rules
 
 ### Workflow vs Product
@@ -86,3 +109,8 @@ Do not merge them.
 
 Do not move optimizer concerns into `{trinity}` core.
 
+### Repository vs Runtime Data
+
+Do not use the repository working tree as the default runtime data directory.
+
+Real runtime data must resolve to explicit machine-local storage outside the repo.

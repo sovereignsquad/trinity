@@ -27,4 +27,18 @@ swift build
 - keep workflow logic out of view code
 - introduce state models before introducing complex UI flows
 - add bundle and packaging work only after the shell contract is stable
+- keep runtime app data out of the repository working tree
 
+## Runtime Data Locations
+
+When `{trinity}` begins storing real local state on macOS, prefer:
+
+- `~/Library/Application Support/Trinity/` for app data
+- `~/Library/Caches/Trinity/` for caches
+- `~/Library/Logs/Trinity/` for logs
+
+Do not default live runtime data to the repository root.
+
+See:
+
+- `docs/RUNTIME_STORAGE_POLICY.md`

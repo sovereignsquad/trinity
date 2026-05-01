@@ -35,6 +35,8 @@ The repository currently has:
 - stage execution contracts and deterministic stage orchestration
 - stage execution contract documentation
 - consolidated Trinity overview documentation
+- explicit runtime storage policy separating repo assets from app state
+- code-level runtime storage path resolution outside the repo working tree
 
 ## Verified Working
 
