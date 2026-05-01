@@ -10,6 +10,8 @@ from .evidence_ingestion import (
     compute_content_hash,
     ingest_evidence,
 )
+from .feedback_memory import apply_reply_feedback
+from .frontier import FrontierEntry, build_frontier, frontier_score
 from .stage_execution import (
     CandidatePipelineResult,
     EvaluationDisposition,
@@ -37,6 +39,9 @@ __all__ = [
     "EvidenceIngestionResult",
     "EvaluatorExecutionInput",
     "execute_candidate_pipeline",
+    "build_frontier",
+    "FrontierEntry",
+    "frontier_score",
     "GeneratorExecutionInput",
     "InMemoryEvidenceStore",
     "RawEvidenceInput",
@@ -54,4 +59,5 @@ __all__ = [
     "compute_content_hash",
     "fork_candidate_version",
     "ingest_evidence",
+    "apply_reply_feedback",
 ]

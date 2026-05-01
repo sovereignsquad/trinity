@@ -15,6 +15,13 @@ from .evidence import (
     EvidenceSourceType,
     EvidenceUnit,
 )
+from .integration import (
+    REPLY_CONTRACT_VERSION,
+    ReplyDraftCandidate,
+    ReplyEvidenceEnvelope,
+    ReplyFeedbackDisposition,
+    ReplyFeedbackEvent,
+)
 
 __all__ = [
     "CandidateLineage",
@@ -27,5 +34,10 @@ __all__ = [
     "EvidenceSourceRef",
     "EvidenceSourceType",
     "EvidenceUnit",
+    "REPLY_CONTRACT_VERSION",
     "ReworkRoute",
+    "ReplyDraftCandidate",
+    "ReplyEvidenceEnvelope",
+    "ReplyFeedbackDisposition",
+    "ReplyFeedbackEvent",
 ]
