@@ -14,13 +14,13 @@ Deliver the canonical runtime boundary for cross-project development while keepi
 
 ### M2. Runtime Completion
 
-- [ ] Persist eligible candidate pools and frontier snapshots.
+- [x] Persist eligible candidate pools and frontier snapshots.
 - [x] Add feedback-memory application logic on top of `ReplyFeedbackEvent`.
-- [ ] Export stable bounded artifacts that `{train}` can optimize and re-import.
+- [x] Export stable bounded artifacts that `{train}` can optimize and re-import.
 
 ### M3. Product Embedding
 
-- [ ] Add an application-facing adapter surface for `{reply}` integration.
+- [x] Add an application-facing adapter surface for `{reply}` integration.
 - [ ] Add shadow-mode fixtures comparing legacy `{reply}` drafting behavior to Trinity candidate outputs.
 
 ## Active Issue Queue
@@ -38,8 +38,8 @@ Deliver the canonical runtime boundary for cross-project development while keepi
 
 ### Open
 
-- `TRINITY-004` Frontier snapshot persistence
-  Frontier selection and feedback application now exist, but persistent frontier snapshots are still not implemented.
+- `TRINITY-005` Reply shadow comparison fixtures
+  Trinity now exposes the local runtime surface and persistent cycle/export artifacts, but the repo still lacks dedicated fixtures proving how legacy Reply drafts compare to Trinity outputs on the same thread.
 
 ## Dependencies
 
