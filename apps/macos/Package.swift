@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Trinity",
+    name: "trinity-macos",
     platforms: [
         .macOS(.v15)
     ],
     products: [
-        .executable(name: "Trinity", targets: ["TrinityApp"])
+        .executable(name: "trinity", targets: ["TrinityApp"])
     ],
     targets: [
         .executableTarget(
@@ -17,4 +17,3 @@ let package = Package(
         )
     ]
 )
-

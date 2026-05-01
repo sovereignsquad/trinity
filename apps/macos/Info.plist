@@ -5,15 +5,15 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>Trinity</string>
+  <string>trinity</string>
   <key>CFBundleIdentifier</key>
   <string>local.trinity.app</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleIconFile</key>
-  <string>Trinity</string>
+  <string>trinity</string>
   <key>CFBundleName</key>
-  <string>Trinity</string>
+  <string>trinity</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

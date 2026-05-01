@@ -59,7 +59,7 @@ struct TrinityApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Trinity") {
+        WindowGroup("trinity") {
             ContentView()
                 .preferredColorScheme(themeMode.preferredColorScheme)
         }
@@ -86,7 +86,7 @@ struct ContentView: View {
                     Label(page.title, systemImage: page.icon)
                         .tag(page)
                 }
-                .navigationTitle("Trinity")
+                .navigationTitle("trinity")
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220)
                 .scrollContentBackground(.hidden)
             } detail: {
@@ -105,7 +105,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Trinity")
+                    Text("trinity")
                         .font(.largeTitle.weight(.bold))
                         .foregroundStyle(TrinityPalette.textPrimary)
                     Text("Candidate-runtime operator shell")
