@@ -38,6 +38,7 @@ from trinity_core.schemas import (
 from trinity_core.workflow import (
     EvaluationDisposition,
     EvaluatorExecutionInput,
+    FrontierEntry,
     GeneratorExecutionInput,
     InMemoryEvidenceStore,
     RawEvaluationResult,
@@ -49,6 +50,7 @@ from trinity_core.workflow import (
     apply_reply_feedback,
     build_frontier,
     execute_candidate_pipeline,
+    frontier_score,
     ingest_evidence,
 )
 
@@ -59,7 +61,12 @@ ARTIFACT_SOURCE_PROJECT = "trinity"
 GENERATOR_SYSTEM_PROMPT = """
 You are Trinity's fast draft generator.
 Return strict JSON with a `candidates` array of exactly 3 concise reply options.
+The 3 options must be materially different strategies:
+1. direct answer
+2. advance with next step
+3. clarify or risk-manage
 Each candidate must contain: title, content, impact, confidence, ease, tags.
+Use one of these tags in every candidate: direct, advance, clarify.
 Keep content plain text, no markdown, no surrounding commentary.
 """.strip()
 
@@ -113,6 +120,11 @@ class ReplyRuntime:
             now=cycle_time,
         )
         frontier = build_frontier(pipeline.evaluated.records, limit=3)
+        surfaced_frontier = _build_surfaced_frontier(
+            pipeline.evaluated.records,
+            frontier,
+            limit=3,
+        )
         artifact = AcceptedArtifactVersion(
             artifact_key=ARTIFACT_KEY,
             version=ARTIFACT_VERSION,
@@ -134,7 +146,7 @@ class ReplyRuntime:
                     risk_flags=_risk_flags(entry.candidate, snapshot),
                     delivery_eligible=entry.candidate.state is CandidateState.EVALUATED,
                 )
-                for entry in frontier
+                for entry in surfaced_frontier
             ),
             accepted_artifact_version=artifact,
         )
@@ -145,7 +157,9 @@ class ReplyRuntime:
             thread_snapshot=snapshot,
             evidence_units=evidence_units,
             candidates=pipeline.evaluated.records,
-            frontier_candidate_ids=tuple(entry.candidate.candidate_id for entry in frontier),
+            frontier_candidate_ids=tuple(
+                entry.candidate.candidate_id for entry in surfaced_frontier
+            ),
             ranked_draft_set=ranked,
             accepted_artifact_version=artifact,
             model_routes=self._model_routes(),
@@ -365,10 +379,13 @@ class ReplyRuntime:
                     content = _normalize_llm_text(item.get("content"))
                     if not content:
                         continue
+                    tags = tuple(_normalize_llm_tags(item.get("tags")))
+                    strategy = _primary_strategy(tags, fallback_index=index)
                     drafts.append(
                         RawGeneratedCandidate(
                             candidate_type=CandidateType.ACTION,
-                            title=_normalize_llm_text(item.get("title")) or f"Draft option {index}",
+                            title=_normalize_llm_text(item.get("title"))
+                            or _strategy_title(strategy, index),
                             content=content,
                             source_evidence_ids=evidence_refs or tuple(
                                 str(unit.evidence_id) for unit in stage_input.evidence_units[:1]
@@ -376,22 +393,13 @@ class ReplyRuntime:
                             impact=_bounded_int(item.get("impact"), 7),
                             confidence=_bounded_int(item.get("confidence"), 7),
                             ease=_bounded_int(item.get("ease"), 6),
-                            semantic_tags=tuple(_normalize_llm_tags(item.get("tags"))),
+                            semantic_tags=_ensure_strategy_tags(tags, strategy),
                         )
                     )
                 if not drafts:
                     raise ValueError("Generator produced empty candidate content.")
-                if len(drafts) < 3:
-                    fallback_candidates = fallback_runner(stage_input)
-                    seen = {draft.content for draft in drafts}
-                    for fallback in fallback_candidates:
-                        if fallback.content in seen:
-                            continue
-                        drafts.append(fallback)
-                        seen.add(fallback.content)
-                        if len(drafts) == 3:
-                            break
-                return tuple(drafts)
+                fallback_candidates = tuple(fallback_runner(stage_input))
+                return _ensure_distinct_generated_candidates(drafts, fallback_candidates)
             except Exception:
                 return fallback_runner(stage_input)
 
@@ -793,6 +801,8 @@ def _risk_flags(candidate: CandidateRecord, snapshot: ThreadSnapshot) -> tuple[s
         flags.append("needs_clarification")
     if len(snapshot.context_snippets) == 0:
         flags.append("low_context")
+    if candidate.state is not CandidateState.EVALUATED:
+        flags.append("needs_operator_review")
     return tuple(flags)
 
 
@@ -876,3 +886,142 @@ def normalized_edit_distance(left: str, right: str) -> float:
     if not left and not right:
         return 0.0
     return 1.0 - SequenceMatcher(a=left, b=right).ratio()
+
+
+def _build_surfaced_frontier(
+    candidates: tuple[CandidateRecord, ...],
+    frontier: tuple[FrontierEntry, ...],
+    *,
+    limit: int,
+) -> tuple[FrontierEntry, ...]:
+    selected: list[CandidateRecord] = []
+    selected_ids: set[UUID] = set()
+    for entry in frontier:
+        if _is_materially_distinct_from_selected(entry.candidate, selected):
+            selected.append(entry.candidate)
+            selected_ids.add(entry.candidate.candidate_id)
+        if len(selected) == limit:
+            break
+
+    if len(selected) < limit:
+        ranked_candidates = sorted(
+            candidates,
+            key=lambda candidate: (
+                candidate.state is not CandidateState.EVALUATED,
+                -frontier_score(candidate),
+                str(candidate.candidate_id),
+            ),
+        )
+        for candidate in ranked_candidates:
+            if candidate.candidate_id in selected_ids:
+                continue
+            if not _is_materially_distinct_from_selected(candidate, selected):
+                continue
+            selected.append(candidate)
+            selected_ids.add(candidate.candidate_id)
+            if len(selected) == limit:
+                break
+
+    return tuple(
+        FrontierEntry(candidate=candidate, frontier_score=frontier_score(candidate), rank=index)
+        for index, candidate in enumerate(selected[:limit], start=1)
+    )
+
+
+def _ensure_distinct_generated_candidates(
+    drafts: list[RawGeneratedCandidate],
+    fallback_candidates: tuple[RawGeneratedCandidate, ...],
+) -> tuple[RawGeneratedCandidate, ...]:
+    selected: list[RawGeneratedCandidate] = []
+    used_strategies: set[str] = set()
+
+    for draft in drafts:
+        strategy = _primary_strategy(draft.semantic_tags)
+        if strategy in used_strategies:
+            continue
+        if any(not _raw_candidates_materially_distinct(draft, existing) for existing in selected):
+            continue
+        selected.append(
+            RawGeneratedCandidate(
+                candidate_type=draft.candidate_type,
+                title=draft.title or _strategy_title(strategy, len(selected) + 1),
+                content=_truncate(draft.content),
+                source_evidence_ids=draft.source_evidence_ids,
+                impact=draft.impact,
+                confidence=draft.confidence,
+                ease=draft.ease,
+                semantic_tags=_ensure_strategy_tags(draft.semantic_tags, strategy),
+            )
+        )
+        used_strategies.add(strategy)
+        if len(selected) == 3:
+            return tuple(selected)
+
+    for fallback in fallback_candidates:
+        strategy = _primary_strategy(fallback.semantic_tags)
+        if strategy in used_strategies and len(used_strategies) < 3:
+            continue
+        if any(
+            not _raw_candidates_materially_distinct(fallback, existing)
+            for existing in selected
+        ):
+            continue
+        selected.append(fallback)
+        used_strategies.add(strategy)
+        if len(selected) == 3:
+            return tuple(selected)
+
+    return tuple(selected[:3] or fallback_candidates[:3])
+
+
+def _is_materially_distinct_from_selected(
+    candidate: CandidateRecord,
+    selected: list[CandidateRecord],
+) -> bool:
+    for existing in selected:
+        if _primary_strategy(candidate.semantic_tags) == _primary_strategy(existing.semantic_tags):
+            return False
+        if normalized_edit_distance(candidate.content.lower(), existing.content.lower()) < 0.22:
+            return False
+    return True
+
+
+def _raw_candidates_materially_distinct(
+    candidate: RawGeneratedCandidate,
+    existing: RawGeneratedCandidate,
+) -> bool:
+    if _primary_strategy(candidate.semantic_tags) == _primary_strategy(existing.semantic_tags):
+        return False
+    return normalized_edit_distance(candidate.content.lower(), existing.content.lower()) >= 0.22
+
+
+def _primary_strategy(tags: tuple[str, ...] | list[str], fallback_index: int | None = None) -> str:
+    normalized = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+    if "advance" in normalized or "next_step" in normalized or "confirm" in normalized:
+        return "advance"
+    if "clarify" in normalized or "risk_manage" in normalized or "risk" in normalized:
+        return "clarify"
+    for strategy in ("direct", "advance", "clarify"):
+        if strategy in normalized:
+            return strategy
+    if fallback_index == 2:
+        return "advance"
+    if fallback_index == 3:
+        return "clarify"
+    return "direct"
+
+
+def _ensure_strategy_tags(tags: tuple[str, ...] | list[str], strategy: str) -> tuple[str, ...]:
+    normalized = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+    if strategy not in normalized:
+        normalized.insert(0, strategy)
+    return tuple(dict.fromkeys(normalized))
+
+
+def _strategy_title(strategy: str, index: int) -> str:
+    mapping = {
+        "direct": "Direct reply",
+        "advance": "Advance with next step",
+        "clarify": "Clarify or risk-manage",
+    }
+    return mapping.get(strategy, f"Draft option {index}")

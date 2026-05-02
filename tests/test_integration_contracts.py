@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from trinity_core.model_config import TrinityReplyModelConfig, TrinityRoleRoute
 from trinity_core.ops.cycle_store import RuntimeCyclePaths, RuntimeCycleStore
 from trinity_core.reply_runtime import ReplyRuntime
 from trinity_core.schemas import (
@@ -223,3 +225,119 @@ def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path
 
     assert len(ranked.drafts) == 3
     assert all(draft.draft_text for draft in ranked.drafts)
+
+
+def test_reply_runtime_backfills_three_distinct_drafts_when_llm_duplicates(tmp_path: Path) -> None:
+    runtime = ReplyRuntime(
+        store=RuntimeCycleStore(
+            RuntimeCyclePaths(
+                root_dir=tmp_path,
+                cycles_dir=tmp_path / "cycles",
+                exports_dir=tmp_path / "exports",
+            )
+        )
+    )
+    runtime.store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    runtime.store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+    runtime.model_config = TrinityReplyModelConfig(
+        provider="ollama",
+        ollama_base_url="http://127.0.0.1:11434",
+        timeout_seconds=10.0,
+        generator=TrinityRoleRoute(
+            provider="ollama",
+            model="generator-test",
+            temperature=0.2,
+            keep_alive="5m",
+        ),
+        refiner=TrinityRoleRoute(
+            provider="ollama",
+            model="refiner-test",
+            temperature=0.2,
+            keep_alive="5m",
+        ),
+        evaluator=TrinityRoleRoute(
+            provider="ollama",
+            model="evaluator-test",
+            temperature=0.1,
+            keep_alive="5m",
+        ),
+    )
+
+    class FakeOllamaClient:
+        def chat_json(self, *, route, system_prompt, user_prompt):  # type: ignore[no-untyped-def]
+            if route.model == "generator-test":
+                return {
+                    "candidates": [
+                        {
+                            "title": "Fast reply",
+                            "content": "Thanks, I can send the update today.",
+                            "impact": 8,
+                            "confidence": 7,
+                            "ease": 7,
+                            "tags": ["direct"],
+                        },
+                        {
+                            "title": "Another fast reply",
+                            "content": "Thanks, I can send the update today.",
+                            "impact": 8,
+                            "confidence": 7,
+                            "ease": 7,
+                            "tags": ["direct"],
+                        },
+                    ]
+                }
+            if route.model == "refiner-test":
+                payload = json.loads(user_prompt)
+                return {
+                    "title": payload["candidate"]["title"],
+                    "content": payload["candidate"]["content"],
+                    "impact": 8,
+                    "confidence": 7,
+                    "ease": 7,
+                    "tags": payload["candidate"]["semantic_tags"],
+                    "reason": "Refined.",
+                }
+            return {
+                "evaluations": [
+                    {
+                        "candidate_id": item["candidate_id"],
+                        "disposition": "ELIGIBLE",
+                        "impact": 8,
+                        "confidence": 7,
+                        "ease": 7,
+                        "quality_score": 78.0,
+                        "urgency_score": 72.0,
+                        "freshness_score": 70.0,
+                        "feedback_score": 15.0,
+                        "reason": "Eligible.",
+                    }
+                    for item in json.loads(user_prompt)["candidates"]
+                ]
+            }
+
+    runtime.ollama_client = FakeOllamaClient()  # type: ignore[assignment]
+
+    snapshot = ThreadSnapshot(
+        company_id=uuid4(),
+        thread_ref="reply:linkedin:alice",
+        channel="linkedin",
+        contact_handle="linkedin://alice",
+        latest_inbound_text="Can you send the updated numbers today?",
+        requested_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+        messages=(
+            ThreadMessageSnapshot(
+                message_id="msg-1",
+                role=ThreadMessageRole.CONTACT,
+                text="Can you send the updated numbers today?",
+                occurred_at=datetime(2026, 5, 1, 11, 59, tzinfo=UTC),
+                channel="linkedin",
+                source="linkedin",
+                handle="linkedin://alice",
+            ),
+        ),
+    )
+
+    ranked = runtime.suggest(snapshot)
+
+    assert len(ranked.drafts) == 3
+    assert len({draft.draft_text for draft in ranked.drafts}) == 3

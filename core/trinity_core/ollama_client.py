@@ -37,12 +37,55 @@ class OllamaChatClient:
             "keep_alive": route.keep_alive,
             "options": {"temperature": route.temperature},
         }
-        endpoint = f"{self.base_url.rstrip('/')}/api/chat"
+        payload = self._request_json("/api/chat", payload=payload, method="POST")
+
+        try:
+            content = payload["message"]["content"]
+        except (KeyError, TypeError) as exc:
+            raise OllamaClientError("Ollama returned an invalid chat payload.") from exc
+
+        try:
+            return json.loads(_extract_json_object(content))
+        except json.JSONDecodeError as exc:
+            raise OllamaClientError("Ollama returned non-JSON content.") from exc
+
+    def list_models(self) -> tuple[dict[str, Any], ...]:
+        payload = self._request_json("/api/tags", method="GET")
+        models = payload.get("models", [])
+        if not isinstance(models, list):
+            raise OllamaClientError("Ollama returned an invalid model inventory payload.")
+        normalized: list[dict[str, Any]] = []
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            if not name:
+                continue
+            normalized.append(
+                {
+                    "name": name,
+                    "size": item.get("size"),
+                    "modified_at": item.get("modified_at"),
+                    "digest": item.get("digest"),
+                    "details": item.get("details") if isinstance(item.get("details"), dict) else {},
+                }
+            )
+        return tuple(normalized)
+
+    def _request_json(
+        self,
+        path: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        method: str = "POST",
+    ) -> dict[str, Any]:
+        endpoint = f"{self.base_url.rstrip('/')}{path}"
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
         req = request.Request(
             endpoint,
-            data=json.dumps(payload).encode("utf-8"),
+            data=body,
             headers={"Content-Type": "application/json"},
-            method="POST",
+            method=method,
         )
         try:
             with request.urlopen(req, timeout=self.timeout_seconds) as response:
@@ -54,15 +97,12 @@ class OllamaChatClient:
             raise OllamaClientError(f"Ollama is unreachable: {exc.reason}") from exc
 
         try:
-            payload = json.loads(raw)
-            content = payload["message"]["content"]
-        except (KeyError, TypeError, json.JSONDecodeError) as exc:
-            raise OllamaClientError("Ollama returned an invalid chat payload.") from exc
-
-        try:
-            return json.loads(_extract_json_object(content))
+            decoded = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise OllamaClientError("Ollama returned non-JSON content.") from exc
+            raise OllamaClientError("Ollama returned invalid JSON.") from exc
+        if not isinstance(decoded, dict):
+            raise OllamaClientError("Ollama returned an unexpected JSON payload.")
+        return decoded
 
 
 def _extract_json_object(raw: str) -> str:

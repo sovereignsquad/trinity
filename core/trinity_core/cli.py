@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     show_config_parser = subparsers.add_parser("reply-show-config")
     show_config_parser.add_argument("--include-path", action="store_true")
 
+    subparsers.add_parser("reply-runtime-status")
+
     write_config_parser = subparsers.add_parser("reply-write-config")
     write_config_parser.add_argument("--provider")
     write_config_parser.add_argument("--ollama-base-url")
@@ -71,6 +73,63 @@ def main(argv: list[str] | None = None) -> int:
         payload = dataclass_payload(load_reply_model_config())
         if args.include_path:
             payload["config_path"] = str(config_path())
+        _write_json(payload)
+        return 0
+
+    if args.command == "reply-runtime-status":
+        config = load_reply_model_config()
+        payload = {
+            "config_path": str(config_path()),
+            "provider": config.provider,
+            "llm_enabled": config.llm_enabled,
+            "ollama_base_url": config.ollama_base_url,
+            "timeout_seconds": config.timeout_seconds,
+            "provider_status": "not_configured",
+            "provider_error": None,
+            "available_models": [],
+            "roles": {
+                "generator": dataclass_payload(config.generator),
+                "refiner": dataclass_payload(config.refiner),
+                "evaluator": dataclass_payload(config.evaluator),
+            },
+        }
+        if config.llm_enabled:
+            try:
+                models = runtime.ollama_client.list_models()
+                installed_names = {str(item.get("name") or "").strip() for item in models}
+                payload["provider_status"] = "online"
+                payload["available_models"] = list(models)
+                for role_name, route in (
+                    ("generator", config.generator),
+                    ("refiner", config.refiner),
+                    ("evaluator", config.evaluator),
+                ):
+                    payload["roles"][role_name] = {
+                        **dataclass_payload(route),
+                        "installed": route.model in installed_names,
+                    }
+            except Exception as exc:
+                payload["provider_status"] = "offline"
+                payload["provider_error"] = str(exc)
+                for role_name, route in (
+                    ("generator", config.generator),
+                    ("refiner", config.refiner),
+                    ("evaluator", config.evaluator),
+                ):
+                    payload["roles"][role_name] = {
+                        **dataclass_payload(route),
+                        "installed": False,
+                    }
+        else:
+            for role_name, route in (
+                ("generator", config.generator),
+                ("refiner", config.refiner),
+                ("evaluator", config.evaluator),
+            ):
+                payload["roles"][role_name] = {
+                    **dataclass_payload(route),
+                    "installed": False,
+                }
         _write_json(payload)
         return 0
 
