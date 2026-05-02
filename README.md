@@ -99,6 +99,7 @@ This repository exists to define and build:
 - the macOS operator shell
 - the evaluation and feedback pipeline
 - the interfaces that downstream products such as `{reply}` can embed
+- a theme/readability contract for the operator shell so system light/dark switching stays legible
 
 ## Current Implemented Contracts
 
