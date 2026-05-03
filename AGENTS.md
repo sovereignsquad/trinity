@@ -79,6 +79,8 @@ When touching `apps/*` or other shipped operator surfaces, preserve the native-a
 - require all shipped visual assets and iconography to be locally available offline
 - use one consistent local icon system and one shared icon sizing contract
 - prefer explicit visual rendering contracts over heuristic markup/path guessing
+- keep native app icon generation deterministic and local-only; do not rely on Quick Look, browser capture, or heuristic raster paths
+- verify bundle icon metadata and refresh macOS app registration after native app installs
 
 ## Memory Rule
 
