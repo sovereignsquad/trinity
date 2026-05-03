@@ -41,6 +41,21 @@ Deliver the canonical runtime boundary for cross-project development while keepi
 - `TRINITY-005` `{reply}` shadow comparison fixtures
   `{trinity}` now exposes the local runtime surface and persistent cycle/export artifacts, but the repo still lacks dedicated fixtures proving how legacy `{reply}` drafts compare to `{trinity}` outputs on the same thread.
 
+- `TRINITY-POLICY-001` `ReplyBehaviorPolicy` schema and validator
+  Define the first bounded policy artifact family for tone, brevity, and channel rules, with deterministic validation and precedence.
+
+- `TRINITY-POLICY-002` Accepted policy/artifact registry
+  Track immutable accepted runtime artifact versions with explicit promotion and rollback metadata.
+
+- `TRINITY-POLICY-003` Training bundle export
+  Export deterministic bounded learning bundles from live cycles for tone, brevity, and channel-formatting learning.
+
+- `TRINITY-POLICY-004` Runtime policy loader/resolver
+  Apply accepted artifacts at runtime for prompt shaping and ranking hints without taking over send lifecycle, transport, or safety semantics.
+
+- `TRINITY-POLICY-005` Acceptance gate workflow
+  Add schema validation, replay comparison, regression rejection, explicit promotion, and explicit rollback as a first-class runtime workflow.
+
 ## Dependencies
 
 - Depends on `{reply}` to supply real downstream product fixtures during integration.
