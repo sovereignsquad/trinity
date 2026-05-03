@@ -69,6 +69,17 @@ If you learn something future contributors or agents need:
 
 Do not leave critical context in chat only.
 
+## Native App UI Rule
+
+When touching `apps/*` or other shipped operator surfaces, preserve the native-app standard:
+
+- `{trinity}` is a native app, not a website
+- do not introduce website-style UX metaphors into shipped operator flows
+- keep core actions in shell chrome, panels, or dialogs
+- require all shipped visual assets and iconography to be locally available offline
+- use one consistent local icon system and one shared icon sizing contract
+- prefer explicit visual rendering contracts over heuristic markup/path guessing
+
 ## Memory Rule
 
 When significant work completes, update:
@@ -98,4 +109,3 @@ Avoid:
 ## Final Rule
 
 Make the repository easier to resume than you found it.
-

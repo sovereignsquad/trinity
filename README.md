@@ -101,6 +101,15 @@ This repository exists to define and build:
 - the interfaces that downstream products such as `{reply}` can embed
 - a theme/readability contract for the operator shell so system light/dark switching stays legible
 
+## Native App UI Standards
+
+- `{trinity}` is a native app product, not a website.
+- Shipped operator flows must stay inside the app shell through app chrome, panels, dialogs, and native workflow surfaces rather than page-style detours.
+- Every shipped visual asset must be available locally and render offline from app-owned resources.
+- Product iconography must come from one local icon system with one shared size contract.
+- Icon buttons must be implemented consistently across shell chrome, runtime controls, status surfaces, and settings.
+- UI rendering should use explicit visual contracts rather than heuristic markup/path guessing.
+
 ## Current Implemented Contracts
 
 The repository currently implements these foundational runtime layers:
