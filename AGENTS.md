@@ -74,6 +74,8 @@ Do not leave critical context in chat only.
 When touching `apps/*` or other shipped operator surfaces, preserve the native-app standard:
 
 - `{trinity}` is a native app, not a website
+- the primary macOS workspace must be pure SwiftUI/AppKit
+- do not move core operator flows back into HTML/CSS/JavaScript shells
 - do not introduce website-style UX metaphors into shipped operator flows
 - keep core actions in shell chrome, panels, or dialogs
 - require all shipped visual assets and iconography to be locally available offline

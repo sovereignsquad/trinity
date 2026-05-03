@@ -17,7 +17,10 @@ This document defines the minimum coding standards for `{trinity}`.
 
 ## Native App UI Rules
 
+- The primary `{trinity}` macOS workspace must be pure SwiftUI/AppKit.
 - Core operator actions belong in shell chrome, panels, and dialogs rather than page-style detours.
+- Do not move the main operator workspace back into HTML/CSS/JavaScript or browser-style shells.
+- Local services and runtime engines may exist, but they remain internal infrastructure behind the native app.
 - Do not ship website-era fallback UX for native operator actions.
 - Use one local icon system and one shared icon size contract across app-controlled surfaces.
 - Do not use emoji or ad hoc glyphs as shipped product iconography.

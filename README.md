@@ -104,7 +104,9 @@ This repository exists to define and build:
 ## Native App UI Standards
 
 - `{trinity}` is a native app product, not a website.
+- The primary macOS workspace must be pure SwiftUI/AppKit.
 - Shipped operator flows must stay inside the app shell through app chrome, panels, dialogs, and native workflow surfaces rather than page-style detours.
+- Local runtime services may exist, but they stay behind the native app rather than replacing the operator workspace.
 - Every shipped visual asset must be available locally and render offline from app-owned resources.
 - Product iconography must come from one local icon system with one shared size contract.
 - Icon buttons must be implemented consistently across shell chrome, runtime controls, status surfaces, and settings.
