@@ -16,6 +16,7 @@ from .evidence import (
     EvidenceUnit,
 )
 from .integration import (
+    REPLY_ADAPTER_CONTRACT_VERSION,
     REPLY_CONTRACT_VERSION,
     AcceptedArtifactVersion,
     CandidateDraft,
@@ -28,10 +29,22 @@ from .integration import (
     ReplyFeedbackDisposition,
     ReplyFeedbackEvent,
     RuntimeTraceExport,
+    StageEvidenceAnchor,
     ThreadContextSnippet,
     ThreadMessageRole,
     ThreadMessageSnapshot,
     ThreadSnapshot,
+    TrainingBundle,
+    TrainingBundleType,
+)
+from .policy import (
+    ReplyBehaviorPolicy,
+    ReplyBehaviorScopeKind,
+    ReplyBrevityPreferences,
+    ReplyChannelRules,
+    ReplyTonePreferences,
+    reply_behavior_policy_from_payload,
+    select_reply_behavior_policy,
 )
 
 __all__ = [
@@ -50,16 +63,27 @@ __all__ = [
     "EvidenceUnit",
     "GoldenExample",
     "REPLY_CONTRACT_VERSION",
+    "REPLY_ADAPTER_CONTRACT_VERSION",
     "RankedDraftSet",
     "ReworkRoute",
     "RuntimeTraceExport",
+    "StageEvidenceAnchor",
     "AcceptedArtifactVersion",
     "ReplyDraftCandidate",
+    "ReplyBehaviorPolicy",
+    "ReplyBehaviorScopeKind",
+    "ReplyBrevityPreferences",
+    "ReplyChannelRules",
     "ReplyEvidenceEnvelope",
     "ReplyFeedbackDisposition",
     "ReplyFeedbackEvent",
+    "ReplyTonePreferences",
     "ThreadContextSnippet",
     "ThreadMessageRole",
     "ThreadMessageSnapshot",
     "ThreadSnapshot",
+    "TrainingBundle",
+    "TrainingBundleType",
+    "reply_behavior_policy_from_payload",
+    "select_reply_behavior_policy",
 ]

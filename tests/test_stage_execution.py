@@ -46,6 +46,8 @@ def test_pipeline_executes_stages_as_distinct_contracts() -> None:
 
     def refiner_runner(stage_input):  # type: ignore[no-untyped-def]
         call_order.append("refiner")
+        assert len(stage_input.evidence_units) == 1
+        assert stage_input.evidence_units[0].evidence_id == evidence.evidence_id
         parent = stage_input.generated_candidates[0]
         return (
             RawRefinerResult(
@@ -60,7 +62,12 @@ def test_pipeline_executes_stages_as_distinct_contracts() -> None:
 
     def evaluator_runner(stage_input):  # type: ignore[no-untyped-def]
         call_order.append("evaluator")
+        assert len(stage_input.evidence_units) == 1
+        assert stage_input.evidence_units[0].evidence_id == evidence.evidence_id
         candidate = stage_input.refined_candidates[0]
+        assert stage_input.evidence_lineage[str(candidate.candidate_id)] == (
+            str(evidence.evidence_id),
+        )
         return (
             RawEvaluationResult(
                 candidate_id=str(candidate.candidate_id),

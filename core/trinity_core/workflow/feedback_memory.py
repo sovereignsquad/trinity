@@ -1,4 +1,4 @@
-"""Feedback-application helpers for product-originated Trinity events."""
+"""Feedback-application helpers for adapter-originated Trinity events."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from trinity_core.schemas import (
 
 
 def apply_reply_feedback(candidate: CandidateRecord, event: ReplyFeedbackEvent) -> CandidateRecord:
-    """Apply downstream product feedback to a candidate record deterministically."""
+    """Apply deterministic feedback semantics for the Reply adapter."""
 
     if candidate.company_id != event.company_id:
         raise ValueError("Feedback company_id must match candidate company_id.")

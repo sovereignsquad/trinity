@@ -2,25 +2,45 @@
 
 ## Purpose
 
-This document defines the first explicit `{reply}` to `{trinity}` product adapter seam.
+This document defines the Reply adapter boundary inside `{trinity}`.
 
-The contract is owned by `{trinity}` because `{trinity}` owns the canonical runtime vocabulary for:
+The contract is owned by `{trinity}` because `{trinity}` owns:
 
-- evidence
-- candidate generation
-- evaluation
-- frontier ranking
-- feedback memory
+- runtime vocabulary
+- candidate semantics
+- ranking semantics
+- outcome semantics
+- artifact provenance
 
-`{reply}` may adapt product data into this shape, but it must not redefine the runtime concepts.
+`{reply}` may adapt product data into this contract, but it must not redefine the runtime concepts.
 
-## Current Contract Version
+## Contract Version
+
+Current adapter contract version:
 
 - `trinity.reply.v1alpha1`
 
+## Runtime Boundary
+
+Reply owns:
+
+- channels
+- contact and conversation storage
+- operator workflow
+- transport behavior
+- approval and send semantics
+
+Trinity owns:
+
+- normalized runtime request vocabulary
+- ranked draft output vocabulary
+- feedback and outcome semantics
+- accepted-artifact provenance
+- replayable runtime traces and bundles
+
 ## Payload Families
 
-### 1. Evidence Into {trinity}
+### Evidence Into Trinity
 
 `ReplyEvidenceEnvelope` carries:
 
@@ -33,32 +53,51 @@ The contract is owned by `{trinity}` because `{trinity}` owns the canonical runt
 - optional `external_message_id`
 - optional string metadata
 
-### 2. Draft Candidates Out Of {trinity}
+### Thread Snapshot Into Trinity
 
-`ReplyDraftCandidate` carries:
+`ThreadSnapshot` carries:
 
-- `candidate_id`
-- `conversation_ref`
-- `recipient_handle`
+- `thread_ref`
 - `channel`
-- `draft_text`
-- `rationale`
-- canonical `CandidateScores`
-- `source_evidence_ids`
+- `contact_handle`
+- `latest_inbound_text`
+- ordered `messages`
+- optional `context_snippets`
+- optional `golden_examples`
 
-### 3. Feedback Back Into {trinity}
+### Ranked Drafts Out Of Trinity
 
-`ReplyFeedbackEvent` carries:
+`RankedDraftSet` and `ReplyDraftCandidate` carry:
 
-- `candidate_id`
-- `conversation_ref`
-- `disposition`
-- `occurred_at`
-- optional notes
-- optional `edited_text`
+- runtime cycle identity
+- accepted artifact provenance
+- ranked draft candidates
+- rationale and source evidence ids
+- delivery eligibility flags
 
-## Ownership Rules
+### Outcomes Back Into Trinity
 
-- `{reply}` owns channels, operator UX, send flows, and product-local storage.
-- `{trinity}` owns candidate vocabulary, ranking semantics, and feedback meaning.
-- `{train}` may optimize bounded `{trinity}` artifacts derived from these runtime concepts, but it does not define them.
+`ReplyFeedbackEvent` and `DraftOutcomeEvent` carry:
+
+- candidate identity
+- conversation or thread reference
+- deterministic disposition
+- occurred-at timestamp
+- optional edited text or operator notes
+
+## Compatibility Rules
+
+- Reply remains the only implemented adapter today.
+- The generic CLI path `--adapter reply` is preferred.
+- Legacy `reply-*` CLI commands remain supported as compatibility aliases.
+- Legacy local Reply storage may still resolve through `reply_runtime` when that root already exists on a machine.
+
+## Non-Goals
+
+This adapter contract does not move the following into `{trinity}`:
+
+- send execution
+- transport policy
+- product-local merge semantics
+- contact resolution rules
+- UI approval logic

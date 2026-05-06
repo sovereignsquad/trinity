@@ -8,7 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from trinity_core.ops.runtime_storage import resolve_runtime_storage_paths
+from trinity_core.adapters import REPLY_ADAPTER_NAME, normalize_adapter_name
+from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 
 DEFAULT_TRINITY_GENERATOR_MODEL = "granite4:350m"
 DEFAULT_TRINITY_REFINER_MODEL = "mistral:latest"
@@ -38,7 +39,7 @@ class TrinityReplyModelConfig:
 
 
 def load_reply_model_config() -> TrinityReplyModelConfig:
-    file_payload = _load_config_file()
+    file_payload = _load_config_file(REPLY_ADAPTER_NAME)
     provider = _resolve_value(
         "TRINITY_MODEL_PROVIDER",
         file_payload,
@@ -129,22 +130,49 @@ def load_reply_model_config() -> TrinityReplyModelConfig:
 
 
 def config_path() -> Path:
+    return config_path_for_adapter(REPLY_ADAPTER_NAME)
+
+
+def config_path_for_adapter(adapter_name: str) -> Path:
     explicit = os.environ.get("TRINITY_MODEL_CONFIG_PATH")
     if explicit:
         return Path(explicit).expanduser().resolve()
-    storage = resolve_runtime_storage_paths(repo_root=Path(__file__).resolve().parents[3])
-    return storage.app_support_dir / "reply_runtime" / "model_config.json"
+    adapter_paths = resolve_adapter_runtime_paths(
+        normalize_adapter_name(adapter_name),
+        repo_root=Path(__file__).resolve().parents[3],
+    )
+    return adapter_paths.root_dir / "model_config.json"
 
 
 def save_reply_model_config(config: TrinityReplyModelConfig) -> Path:
-    path = config_path()
+    path = config_path_for_adapter(REPLY_ADAPTER_NAME)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(config), indent=2, sort_keys=True), encoding="utf-8")
     return path
 
 
-def _load_config_file() -> dict[str, Any]:
-    path = config_path()
+def load_model_config_for_adapter(adapter_name: str) -> TrinityReplyModelConfig:
+    normalized_adapter = normalize_adapter_name(adapter_name)
+    if normalized_adapter != REPLY_ADAPTER_NAME:
+        raise ValueError(f"Unsupported model configuration adapter: {normalized_adapter}.")
+    return load_reply_model_config()
+
+
+def save_model_config_for_adapter(
+    adapter_name: str,
+    config: TrinityReplyModelConfig,
+) -> Path:
+    normalized_adapter = normalize_adapter_name(adapter_name)
+    if normalized_adapter != REPLY_ADAPTER_NAME:
+        raise ValueError(f"Unsupported model configuration adapter: {normalized_adapter}.")
+    path = config_path_for_adapter(normalized_adapter)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(asdict(config), indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def _load_config_file(adapter_name: str) -> dict[str, Any]:
+    path = config_path_for_adapter(adapter_name)
     if not path.exists():
         return {}
     try:

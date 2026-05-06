@@ -6,12 +6,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from .candidate import CandidateRecord, CandidateScores, CandidateType
 from .evidence import EvidenceUnit
 
 REPLY_CONTRACT_VERSION = "trinity.reply.v1alpha1"
+REPLY_ADAPTER_CONTRACT_VERSION = REPLY_CONTRACT_VERSION
 
 
 def _require_timezone(value: datetime, *, field_name: str) -> None:
@@ -25,7 +26,7 @@ def _require_text(value: str, *, field_name: str) -> None:
 
 
 class ReplyFeedbackDisposition(StrEnum):
-    """Canonical feedback outcomes accepted from downstream products."""
+    """Canonical feedback outcomes accepted from the Reply adapter."""
 
     ACCEPTED = "ACCEPTED"
     EDITED = "EDITED"
@@ -34,14 +35,14 @@ class ReplyFeedbackDisposition(StrEnum):
 
 
 class ThreadMessageRole(StrEnum):
-    """Stable roles inside a reply thread snapshot."""
+    """Stable roles inside a Reply thread snapshot."""
 
     CONTACT = "CONTACT"
     OPERATOR = "OPERATOR"
 
 
 class DraftOutcomeDisposition(StrEnum):
-    """Canonical operator outcomes for Trinity-ranked drafts."""
+    """Canonical operator outcomes for Trinity-ranked reply drafts."""
 
     SHOWN = "SHOWN"
     SELECTED = "SELECTED"
@@ -53,9 +54,17 @@ class DraftOutcomeDisposition(StrEnum):
     REWORK_REQUESTED = "REWORK_REQUESTED"
 
 
+class TrainingBundleType(StrEnum):
+    """Initial bounded bundle families exported for offline policy learning."""
+
+    TONE_LEARNING = "tone-learning"
+    BREVITY_LEARNING = "brevity-learning"
+    CHANNEL_FORMATTING_LEARNING = "channel-formatting-learning"
+
+
 @dataclass(frozen=True, slots=True)
 class ReplyEvidenceEnvelope:
-    """Minimal evidence payload a downstream reply product can hand to Trinity."""
+    """Minimal evidence payload that the Reply adapter can hand to Trinity."""
 
     company_id: UUID
     conversation_ref: str
@@ -98,7 +107,7 @@ class ThreadMessageSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class ThreadContextSnippet:
-    """One retrieved context snippet supplied by Reply."""
+    """One retrieved context snippet supplied by the Reply adapter."""
 
     source: str
     path: str
@@ -112,7 +121,7 @@ class ThreadContextSnippet:
 
 @dataclass(frozen=True, slots=True)
 class GoldenExample:
-    """One product-provided example draft used for downstream style hints."""
+    """One adapter-provided example draft used for downstream style hints."""
 
     path: str
     text: str
@@ -124,7 +133,7 @@ class GoldenExample:
 
 @dataclass(frozen=True, slots=True)
 class ThreadSnapshot:
-    """Canonical product snapshot used to request ranked drafts from Trinity."""
+    """Canonical Reply snapshot used to request ranked drafts from Trinity."""
 
     company_id: UUID
     thread_ref: str
@@ -164,7 +173,7 @@ class AcceptedArtifactVersion:
 
 @dataclass(frozen=True, slots=True)
 class CandidateDraft:
-    """Ranked product-facing draft candidate emitted by Trinity."""
+    """Ranked adapter-facing draft candidate emitted by Trinity."""
 
     company_id: UUID
     candidate_id: UUID
@@ -223,7 +232,7 @@ class CandidateDraft:
 
 @dataclass(frozen=True, slots=True)
 class RankedDraftSet:
-    """Top-ranked drafts returned to Reply for one Trinity cycle."""
+    """Top-ranked drafts returned to the Reply adapter for one Trinity cycle."""
 
     cycle_id: UUID
     thread_ref: str
@@ -346,6 +355,24 @@ class ReplyFeedbackEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class StageEvidenceAnchor:
+    """Explicit evidence batch re-anchored into one runtime stage."""
+
+    stage_name: str
+    anchor_kind: str
+    evidence_ids: tuple[UUID, ...]
+    content_hashes: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _require_text(self.stage_name, field_name="stage_name")
+        _require_text(self.anchor_kind, field_name="anchor_kind")
+        if not self.evidence_ids:
+            raise ValueError("evidence_ids is required.")
+        if len(self.evidence_ids) != len(self.content_hashes):
+            raise ValueError("content_hashes must align with evidence_ids.")
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeTraceExport:
     """Replayable Trinity export for Train trace ingestion."""
 
@@ -358,6 +385,7 @@ class RuntimeTraceExport:
     frontier_candidate_ids: tuple[UUID, ...]
     ranked_draft_set: RankedDraftSet
     accepted_artifact_version: AcceptedArtifactVersion
+    stage_evidence_anchors: tuple[StageEvidenceAnchor, ...] = ()
     feedback_events: tuple[DraftOutcomeEvent, ...] = ()
     model_routes: Mapping[str, str] = field(default_factory=dict)
     contract_version: str = REPLY_CONTRACT_VERSION
@@ -367,3 +395,33 @@ class RuntimeTraceExport:
         _require_text(self.snapshot_hash, field_name="snapshot_hash")
         if not self.frontier_candidate_ids:
             raise ValueError("frontier_candidate_ids is required.")
+        if not self.stage_evidence_anchors:
+            raise ValueError("stage_evidence_anchors is required.")
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingBundle:
+    """Deterministic bounded learning bundle derived from one runtime cycle."""
+
+    bundle_id: UUID
+    bundle_type: TrainingBundleType
+    exported_at: datetime
+    thread_snapshot: ThreadSnapshot
+    evidence_units: tuple[EvidenceUnit, ...]
+    ranked_draft_set: RankedDraftSet
+    selected_candidate_id: UUID | None
+    draft_outcome_event: DraftOutcomeEvent
+    labels: Mapping[str, str] = field(default_factory=dict)
+    contract_version: str = REPLY_CONTRACT_VERSION
+
+    def __post_init__(self) -> None:
+        _require_timezone(self.exported_at, field_name="exported_at")
+        if self.selected_candidate_id is not None:
+            ranked_candidate_ids = {draft.candidate_id for draft in self.ranked_draft_set.drafts}
+            if self.selected_candidate_id not in ranked_candidate_ids:
+                raise ValueError("selected_candidate_id must exist in ranked_draft_set.drafts.")
+
+    @classmethod
+    def build_bundle_id(cls, *, cycle_id: UUID, bundle_type: TrainingBundleType) -> UUID:
+        namespace = UUID("4c3a64da-cf62-59e8-8854-fcf3d36f8bf6")
+        return uuid5(namespace, f"{cycle_id}:{bundle_type.value}")

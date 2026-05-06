@@ -1,6 +1,14 @@
 """Core runtime package for Trinity."""
 
+from trinity_core.adapters import (
+    REPLY_ADAPTER_NAME,
+    SUPPORTED_ADAPTER_NAMES,
+    TrinityAdapterDescriptor,
+    normalize_adapter_name,
+    require_supported_adapter,
+)
 from trinity_core.ops import RuntimeStoragePaths, resolve_runtime_storage_paths
+from trinity_core.runtime import TrinityRuntime
 from trinity_core.schemas import (
     CandidateLineage,
     CandidateRecord,
@@ -68,9 +76,13 @@ __all__ = [
     "RawEvaluationResult",
     "RawGeneratedCandidate",
     "RawRefinerResult",
+    "REPLY_ADAPTER_NAME",
     "RefinerDisposition",
     "RefinerExecutionInput",
     "resolve_runtime_storage_paths",
+    "SUPPORTED_ADAPTER_NAMES",
+    "TrinityAdapterDescriptor",
+    "TrinityRuntime",
     "ReworkRoute",
     "RuntimeStoragePaths",
     "StageExecutionResult",
@@ -78,6 +90,8 @@ __all__ = [
     "canonicalize_content",
     "compute_content_hash",
     "ingest_evidence",
+    "normalize_adapter_name",
+    "require_supported_adapter",
     "run_evaluator_stage",
     "run_generator_stage",
     "run_refiner_stage",

@@ -2,72 +2,56 @@
 
 ## Purpose
 
-This is the current status document for the repository.
+This document records the current implementation state of `{trinity}`.
 
 ## Current Phase
 
-Phase:
+Current phase:
 
-- workflow contract establishment
-- macOS-first development baseline
-- first runtime schema delivery
+- reusable runtime core is established
+- Reply adapter integration remains the only production adapter
+- generic adapter seam and generic CLI surface are now implemented
+- compatibility aliases remain in place for downstream Reply integration safety
 
-Primary active issue:
+Primary active lane:
 
-- `#6` `{trinity}: Build frontier selection, suppression, merge, and ranking semantics`
+- keep the Reply adapter stable while broadening `{trinity}` into a genuinely reusable runtime for additional projects
 
 ## Current Reality
 
 The repository currently has:
 
-- GitHub project board and initial issue roadmap
-- core operating docs
-- coding standards
-- definition of done
-- design system baseline
-- macOS development baseline
-- Python workspace scaffold
-- minimal SwiftUI shell scaffold
-- evidence ingestion schema and deterministic ingestion helpers
-- evidence ingestion contract documentation
-- candidate lifecycle schema and transition helpers
-- candidate lifecycle contract documentation
-- stage execution contracts and deterministic stage orchestration
-- stage execution contract documentation
-- consolidated Trinity overview documentation
-- explicit runtime storage policy separating repo assets from app state
-- code-level runtime storage path resolution outside the repo working tree
+- deterministic workflow core
+- adapter helper layer
+- generic `TrinityRuntime` facade
+- adapter-scoped runtime storage for new installs
+- legacy Reply storage fallback for migration safety
+- generic CLI commands with `--adapter`
+- compatibility `reply-*` aliases
+- bounded Reply policy artifacts and acceptance workflow
+- accepted-artifact promotion and rollback workflows
+- training-bundle export
+- shadow fixture replay
+- deterministic coverage across workflow, policy, storage, and adapter behavior
 
 ## Verified Working
 
-Verified locally:
+Verified locally in the current tranche:
 
 - `uv run pytest`
-- `uv run ruff check .`
-- `swift build` in `apps/macos`
+- `PYTHONPATH=core uv run python -m trinity_core.cli show-config --adapter reply --include-path`
+- `PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply`
+- `PYTHONPATH=core uv run python -m trinity_core.cli run-shadow-fixtures --adapter reply`
 
-## Current Gaps
+## Known Constraints
 
-Still missing on the critical path:
+- only the `reply` adapter is implemented today
+- generic model configuration still resolves to Reply semantics because no second adapter exists yet
+- Reply policy artifacts remain Reply-specific by design and have not yet been generalized into multiple artifact families
 
-- frontier selection, suppression, merge, and ranking semantics
-- local evidence and feedback models
-- tenant-bound persistence and cycle orchestration
-- real macOS operator screens
-- `{reply}` adapter contract
+## Immediate Priorities
 
-## Immediate Next Steps
-
-1. implement frontier selection, suppression, merge, and ranking semantics
-2. build tenant-bound persistence and cycle orchestration
-3. build the first operator shell slices
-4. add the `{reply}` adapter contract against the runtime seams
-
-## Resume Point
-
-If resuming work, start by reading:
-
-1. `README.md`
-2. `docs/STATUS.md`
-3. `docs/HANDOVER.md`
-4. `AGENTS.md`
+1. keep the Reply adapter stable while extracting more adapter-owned code into dedicated adapter packages
+2. add a second real adapter before broadening generic schemas further
+3. preserve explicit artifact promotion, rollback, and provenance rules
+4. continue preferring deterministic replay coverage over heuristic runtime expansion

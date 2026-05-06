@@ -1,4 +1,4 @@
-"""Filesystem-backed storage for Reply/Trinity runtime cycles."""
+"""Filesystem-backed storage for adapter-scoped Trinity runtime cycles."""
 
 from __future__ import annotations
 
@@ -9,39 +9,59 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from trinity_core.ops.runtime_storage import resolve_runtime_storage_paths
+from trinity_core.adapters import REPLY_ADAPTER_NAME, normalize_adapter_name
+from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeCyclePaths:
     """Resolved storage paths for persisted runtime cycles."""
 
+    adapter_name: str
     root_dir: Path
     cycles_dir: Path
     exports_dir: Path
 
 
-def resolve_cycle_storage_paths() -> RuntimeCyclePaths:
-    runtime_paths = resolve_runtime_storage_paths(repo_root=Path(__file__).resolve().parents[3])
-    root_dir = runtime_paths.app_support_dir / "reply_runtime"
+def resolve_cycle_storage_paths(adapter_name: str = REPLY_ADAPTER_NAME) -> RuntimeCyclePaths:
+    adapter_paths = resolve_adapter_runtime_paths(
+        adapter_name,
+        repo_root=Path(__file__).resolve().parents[3],
+    )
+    root_dir = adapter_paths.root_dir
     cycles_dir = root_dir / "cycles"
     exports_dir = root_dir / "exports"
     for path in (root_dir, cycles_dir, exports_dir):
         path.mkdir(parents=True, exist_ok=True)
-    return RuntimeCyclePaths(root_dir=root_dir, cycles_dir=cycles_dir, exports_dir=exports_dir)
+    return RuntimeCyclePaths(
+        adapter_name=normalize_adapter_name(adapter_name),
+        root_dir=root_dir,
+        cycles_dir=cycles_dir,
+        exports_dir=exports_dir,
+    )
 
 
 class RuntimeCycleStore:
     """Persist runtime cycle payloads as stable JSON documents."""
 
-    def __init__(self, paths: RuntimeCyclePaths | None = None) -> None:
-        self.paths = paths or resolve_cycle_storage_paths()
+    def __init__(
+        self,
+        paths: RuntimeCyclePaths | None = None,
+        *,
+        adapter_name: str = REPLY_ADAPTER_NAME,
+    ) -> None:
+        self.paths = paths or resolve_cycle_storage_paths(adapter_name)
 
     def cycle_path(self, cycle_id: UUID) -> Path:
         return self.paths.cycles_dir / f"{cycle_id}.json"
 
     def export_path(self, cycle_id: UUID) -> Path:
         return self.paths.exports_dir / f"{cycle_id}.json"
+
+    def bundle_path(self, bundle_id: UUID) -> Path:
+        bundles_dir = self.paths.root_dir / "training_bundles"
+        bundles_dir.mkdir(parents=True, exist_ok=True)
+        return bundles_dir / f"{bundle_id}.json"
 
     def save_cycle(self, cycle_id: UUID, payload: dict[str, Any]) -> Path:
         path = self.cycle_path(cycle_id)
@@ -56,6 +76,13 @@ class RuntimeCycleStore:
 
     def save_export(self, cycle_id: UUID, payload: dict[str, Any]) -> Path:
         path = self.export_path(cycle_id)
+        path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, default=_json_default), encoding="utf-8"
+        )
+        return path
+
+    def save_bundle(self, bundle_id: UUID, payload: dict[str, Any]) -> Path:
+        path = self.bundle_path(bundle_id)
         path.write_text(
             json.dumps(payload, indent=2, sort_keys=True, default=_json_default), encoding="utf-8"
         )

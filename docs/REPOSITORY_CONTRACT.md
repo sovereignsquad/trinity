@@ -2,115 +2,138 @@
 
 ## Purpose
 
-This document defines the intended structure of the `{trinity}` repository.
+This document defines the intended structure and boundary rules of the `{trinity}` repository.
 
 ## Core Separation
 
 The repository is divided into six concerns:
 
-1. docs
+1. documentation
 2. workflow core
-3. memory and storage
+3. schemas and contracts
 4. product adapters
-5. app surfaces
-6. operations
+5. operations and storage
+6. shipped app surfaces
 
-These concerns must stay separate.
+These concerns must remain explicit.
 
 ## Intended Layout
 
 ```text
 trinity/
   README.md
-  AGENTS.md
   docs/
   core/
     trinity_core/
-      workflow/
-      memory/
       adapters/
+      ops/
+      runtime.py
       schemas/
+      workflow/
   apps/
-    macos/
   tests/
 ```
 
 ## Directory Responsibilities
 
-### `docs/`
+### `core/trinity_core/workflow/`
 
-Holds SSOT project documentation.
+Reusable runtime logic:
 
-### `core/trinity_core/`
+- evidence ingestion
+- stage execution
+- frontier selection
+- deterministic feedback application
 
-Holds reusable runtime code.
+No product-specific transport or approval rules belong here.
 
-Includes:
+### `core/trinity_core/schemas/`
 
-- workflow stages
-- schemas
-- memory logic
-- adapter interfaces
+Canonical runtime contracts:
 
-### `apps/macos/`
+- evidence
+- candidate
+- stage-output
+- adapter request and outcome envelopes
+- bounded artifact schemas
 
-Holds the native operator shell.
+### `core/trinity_core/adapters/`
 
-This layer must consume runtime contracts, not redefine them.
+Adapter declarations and future product adapter packages.
+
+This layer is where product-specific mapping belongs:
+
+- request normalization
+- product outcome mapping
+- adapter naming
+- adapter compatibility rules
+
+### `core/trinity_core/ops/`
+
+Operational support code:
+
+- runtime storage
+- trace persistence
+- accepted-artifact registry
+- adapter-scoped policy storage
+- fixture replay tooling
+
+### `apps/`
+
+Shipped operator surfaces. These surfaces consume runtime contracts; they do not redefine them.
 
 ### `tests/`
 
-Holds deterministic tests for repository-level and runtime-level behavior.
+Deterministic coverage for:
+
+- workflow core
+- adapter contracts
+- storage semantics
+- CLI behavior
+- artifact lifecycle
 
 ## Runtime Data Boundary
 
-The repository is not the home for live application state.
+The repository is not the home for live runtime state.
 
-Source-controlled development assets belong in the repository.
-
-Runtime data belongs in machine-local app data locations outside the repository working tree.
-
-That includes:
+Runtime data belongs in machine-local storage outside the working tree, including:
 
 - evidence stores
 - candidate stores
 - feedback memory
 - logs
 - caches
-- model artifacts
-- local operator state
+- model configuration
 - execution traces
+- accepted artifact state
+- shadow fixtures copied for local use
 
-For the storage policy and recommended macOS locations, see:
+## Adapter Rule
 
-- `docs/RUNTIME_STORAGE_POLICY.md`
+`{trinity}` is generic at the runtime boundary and specific at the adapter boundary.
 
-## Boundary Rules
+That means:
 
-### Workflow vs Product
+- core runtime code may not assume `{reply}` semantics by default
+- adapter-specific code may exist, but it must be isolated and named as adapter code
+- compatibility aliases are acceptable when they preserve a stable downstream integration contract
 
-Core workflow logic belongs in `core/trinity_core/`.
+## Storage Rule
 
-Product-specific embedding logic belongs under product adapters.
+New adapter work must use adapter-scoped runtime roots:
 
-### Model vs Product
+```text
+.../trinity_runtime/adapters/<adapter>/
+```
 
-Model adapters belong under `adapter.model.*`.
+Legacy Reply storage compatibility may remain in place for migration safety, but new features must not introduce fresh hard-coded `reply_runtime` assumptions.
 
-Product adapters belong under `adapter.product.*`.
+## Optimization Rule
 
-Do not merge them.
+`{train}` may optimize exported `{trinity}` artifacts.
 
-### Runtime vs Optimizer
+`{train}` may not:
 
-`{trinity}` is the runtime workflow.
-
-`{train}` is the optimizer that improves components of the runtime.
-
-Do not move optimizer concerns into `{trinity}` core.
-
-### Repository vs Runtime Data
-
-Do not use the repository working tree as the default runtime data directory.
-
-Real runtime data must resolve to explicit machine-local storage outside the repo.
+- mutate runtime state directly
+- define product workflow semantics
+- redefine adapter contracts from outside `{trinity}`

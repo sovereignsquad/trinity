@@ -102,6 +102,7 @@ class RefinerExecutionInput:
 
     company_id: UUID
     generated_candidates: tuple[CandidateRecord, ...]
+    evidence_units: tuple[EvidenceUnit, ...] = ()
     strategic_context: Mapping[str, str] = field(default_factory=dict)
     feedback_memory: Mapping[str, str] = field(default_factory=dict)
     ranking_context: Mapping[str, str] = field(default_factory=dict)
@@ -129,6 +130,7 @@ class EvaluatorExecutionInput:
 
     company_id: UUID
     refined_candidates: tuple[CandidateRecord, ...]
+    evidence_units: tuple[EvidenceUnit, ...] = ()
     evidence_lineage: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     strategic_policy: Mapping[str, str] = field(default_factory=dict)
     feedback_memory: Mapping[str, str] = field(default_factory=dict)
@@ -434,6 +436,7 @@ def execute_candidate_pipeline(
     refined = run_refiner_stage(
         RefinerExecutionInput(
             company_id=generator_input.company_id,
+            evidence_units=generator_input.evidence_units,
             generated_candidates=generated.records,
             strategic_context=strategic_context,
             feedback_memory=feedback_memory,
@@ -445,11 +448,19 @@ def execute_candidate_pipeline(
     evaluated = run_evaluator_stage(
         EvaluatorExecutionInput(
             company_id=generator_input.company_id,
+            evidence_units=generator_input.evidence_units,
             refined_candidates=tuple(
                 candidate
                 for candidate in refined.records
                 if candidate.state == CandidateState.REFINED
             ),
+            evidence_lineage={
+                str(candidate.candidate_id): tuple(
+                    str(evidence_id) for evidence_id in candidate.lineage.source_evidence_ids
+                )
+                for candidate in refined.records
+                if candidate.state == CandidateState.REFINED
+            },
             strategic_policy=strategic_policy,
             feedback_memory=feedback_memory,
             active_inventory_state=active_inventory_state,

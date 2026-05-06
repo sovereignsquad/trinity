@@ -2,54 +2,49 @@
 
 ## Purpose
 
-This document exists so work can be resumed cleanly by:
+This document captures the current resume point for `{trinity}`.
 
-- the same developer later
-- another developer
-- another coding agent
+## Current Resume Point
 
-## Current Handover
+Most recent meaningful tranche:
 
-### What Changed Last
+- `{trinity}` moved from an implicitly Reply-shaped runtime shell to an explicit adapter-aware runtime surface
 
-Last completed increment:
+Implemented in that tranche:
 
-- stage execution contract for `{trinity}`
+- generic adapter helpers in `core/trinity_core/adapters`
+- generic `TrinityRuntime` facade in `core/trinity_core/runtime.py`
+- generic CLI commands with `--adapter` in `core/trinity_core/cli.py`
+- adapter-scoped runtime storage for new installs
+- Reply compatibility aliases for CLI and legacy storage
+- documentation rewrite for repository, adapter, and CLI contracts
 
-Implemented:
+## What Was Preserved
 
-- stage input contracts for generator, refiner, and evaluator
-- raw stage output contracts normalized deterministically into runtime candidate schemas
-- explicit stage failure surfacing for runner exceptions and invalid raw output
-- end-to-end stage orchestration through `execute_candidate_pipeline()`
-- deterministic tests for stage wiring, failure surfaces, and evaluator rework mapping
-- stage execution contract documentation
-- consolidated `docs/TRINITY_OVERVIEW.md` for fast repository orientation
-- explicit `docs/RUNTIME_STORAGE_POLICY.md` defining repo-vs-runtime-data separation
-- runtime storage path resolver that rejects repo-local app state directories by default
-- status and handover updates advancing the repo to issue `#6`
+- `ReplyRuntime` remains the concrete implementation for the Reply adapter
+- existing `reply-*` CLI commands still work
+- existing Reply runtime state can still resolve through the legacy `reply_runtime` root when present
+- existing Reply tests remain the primary contract coverage baseline
 
-### What Was Verified
-
-Verified:
+## What Was Verified
 
 - `uv run pytest`
-- `uv run ruff check .`
-- `swift build` in `apps/macos`
+- generic CLI config path works for `--adapter reply`
+- generic runtime rejects unsupported adapter names explicitly
+- adapter runtime paths are namespaced for new installs and can fall back to legacy Reply roots when needed
 
-### What Needs To Happen Next
+## Practical Meaning
 
-1. implement frontier selection, suppression, merge, and ranking semantics
-2. add tenant-bound persistence and cycle orchestration
-3. start the first real macOS operator shell slices against runtime contracts
-4. add the `{reply}` adapter contract against the runtime seams
+The repository is now safer to extend for other projects because:
 
-### Watch Carefully
+- the generic runtime surface exists
+- adapter naming is explicit
+- storage layout is no longer hard-wired to Reply for new work
+- the CLI contract is no longer product-specific by default
 
-- do not collapse `{trinity}` into `{train}`
-- keep workflow core separate from product adapters
-- keep the first embedding `{reply}`-aware but not `{reply}`-shaped
-- keep candidate lifecycle semantics explicit instead of letting app code invent them
-- keep generator, refiner, and evaluator execution contracts separate from lifecycle storage semantics
-- keep frontier/ranking logic distinct from evaluator execution so precision policy stays inspectable
-- keep local-private data out of git
+## Watch Carefully
+
+- do not move product transport or approval semantics into core runtime modules
+- do not expand generic schemas only because Reply currently uses a field
+- do not remove Reply compatibility aliases until a second adapter is live and the generic CLI has proven stable
+- do not reintroduce fresh hard-coded `reply_runtime` paths in new code

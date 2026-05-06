@@ -1,207 +1,156 @@
 # {trinity}
 
-`trinity` is a local-first runtime workflow for turning raw evidence into ranked, decision-ready candidates.
+`{trinity}` is a local-first candidate runtime with product adapters.
 
-It is the runtime brain layer for systems such as:
+It is the runtime layer that turns normalized evidence into ranked, decision-ready candidates. It is not the product shell, and it is not the offline optimizer.
 
-- omnichannel reply drafting
-- domain-specific advisory assistants
-- tutoring systems
-- knowledge surfacing
-- action recommendation
+Current system split:
 
-`{trinity}` is not the same system as `{train}`.
+- `{trinity}` owns runtime workflow, ranking, trace export, training-bundle export, and accepted-artifact application
+- product repositories own ingestion, operator workflow, transport rules, approval semantics, and send execution
+- `{train}` owns offline bounded optimization of exported `{trinity}` artifacts
 
-- `{trinity}` runs the workflow that produces candidates
-- `{train}` improves bounded pieces of that workflow later
+## Current State
 
-The likely first downstream embedding is `{reply}`, but `{reply}` must not define the whole runtime.
+This repository now exposes a generic runtime seam with adapter-aware storage and CLI routing.
 
-## What It Does
+Implemented today:
 
-`{trinity}` is designed to solve four problems at once:
+- reusable workflow core under [core/trinity_core/workflow](/Users/Shared/Projects/trinity/core/trinity_core/workflow)
+- adapter helpers under [core/trinity_core/adapters](/Users/Shared/Projects/trinity/core/trinity_core/adapters)
+- generic runtime facade in [core/trinity_core/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/runtime.py)
+- adapter-scoped storage helpers in [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
+- generic CLI surface in [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
+- first production adapter contract for `{reply}`
 
-1. high evidence volume
-2. noisy and overlapping signals
-3. limited human attention
-4. the need to learn from feedback over time
+Implemented adapter support:
 
-Its purpose is not to generate prose for its own sake.
+- `reply`
 
-Its purpose is to maintain a small, high-utility, continuously refreshed operational frontier from a much larger internal candidate inventory.
+Compatibility guarantee:
 
-## Core Workflow
+- the generic CLI is the preferred contract
+- legacy `reply-*` commands remain supported as compatibility aliases
+- the Reply adapter can still read legacy `reply_runtime` storage when a machine already has that layout
 
-The workflow is intentionally staged:
-
-1. ingest evidence
-2. generate candidates
-3. refine candidates
-4. evaluate candidates
-5. select the frontier
-6. learn from user feedback
-
-The intended machine-first flow is:
-
-```text
-Evidence
-  -> Generator
-  -> Refiner
-  -> Evaluator
-  -> Eligible Candidate Pool
-  -> Frontier Selector
-  -> User Feedback
-  -> Reprocessing and Memory Update
-```
-
-The operator-facing frontier is intentionally small:
-
-```text
-FrontierSize = min(3, eligible items)
-```
-
-## Core Runtime Concepts
-
-Canonical runtime artifacts:
-
-- `EvidenceUnit`
-- `KnowledgeItem`
-- `ActionItem`
-- `FeedbackEvent`
-
-Canonical lifecycle states:
-
-- `GENERATED`
-- `REFINED`
-- `EVALUATED`
-- `REWORK`
-- `SUPPRESSED`
-- `ARCHIVED`
-- `DELIVERED` for action items only
-
-Canonical scoring dimensions:
-
-- `impact`
-- `confidence`
-- `ease`
-- `qualityScore`
-- `urgencyScore`
-- `freshnessScore`
-- `feedbackScore`
-
-## Repository Purpose
-
-This repository exists to define and build:
-
-- the runtime workflow contract
-- the local data and memory model
-- the candidate lifecycle and execution seams
-- the macOS operator shell
-- the evaluation and feedback pipeline
-- the interfaces that downstream products such as `{reply}` can embed
-- a theme/readability contract for the operator shell so system light/dark switching stays legible
-
-## Native App UI Standards
-
-- `{trinity}` is a native app product, not a website.
-- The primary macOS workspace must be pure SwiftUI/AppKit.
-- Shipped operator flows must stay inside the app shell through app chrome, panels, dialogs, and native workflow surfaces rather than page-style detours.
-- Local runtime services may exist, but they stay behind the native app rather than replacing the operator workspace.
-- Every shipped visual asset must be available locally and render offline from app-owned resources.
-- Product iconography must come from one local icon system with one shared size contract.
-- Icon buttons must be implemented consistently across shell chrome, runtime controls, status surfaces, and settings.
-- UI rendering should use explicit visual contracts rather than heuristic markup/path guessing.
-
-## Current Implemented Contracts
-
-The repository currently implements these foundational runtime layers:
-
-1. Evidence ingestion
-   Deterministic canonicalization, exact-hash deduplication, provenance handling, and tenant-bound evidence semantics.
-2. Candidate lifecycle
-   Explicit candidate types, lifecycle states, legal transitions, lineage preservation, and rework routes.
-3. Stage execution
-   Separate generator, refiner, and evaluator contracts with deterministic normalization and explicit failure surfacing.
-4. Runtime storage resolution
-   Code-level enforcement that default app data, cache, and log directories resolve outside the repository working tree.
-
-Relevant docs:
-
-- [{trinity} Overview](./docs/TRINITY_OVERVIEW.md)
-- [Evidence Ingestion Contract](./docs/EVIDENCE_INGESTION_CONTRACT.md)
-- [Candidate Lifecycle Contract](./docs/CANDIDATE_LIFECYCLE_CONTRACT.md)
-- [Stage Execution Contract](./docs/STAGE_EXECUTION_CONTRACT.md)
-- [Runtime Storage Policy](./docs/RUNTIME_STORAGE_POLICY.md)
-
-## What Is Planned Next
-
-The runtime is not complete yet.
-
-Still on the critical path:
-
-- frontier selection, suppression, merge, and ranking semantics
-- tenant-bound persistence and cycle orchestration
-- feedback memory and replayability
-- the `{reply}` product adapter contract
-- real macOS operator screens beyond scaffold
-- local model adapter seams
-
-## Platform Direction
-
-Near term:
-
-- finish the workflow core
-- lock the ranking and frontier semantics
-- build persistence and feedback memory
-- build the first local macOS shell slices
-- prepare runtime seams that `{train}` can optimize later
-
-Longer term:
-
-- integrate with `{reply}` as the first production embedding
-- support multilingual local inference and ranking
-- support domain-specific brains built on the same workflow
-
-## Initial Repository Shape
+## Repository Layout
 
 ```text
 trinity/
-  apps/
-    macos/
   core/
     trinity_core/
+      adapters/
+      ops/
+      runtime.py
+      schemas/
+      workflow/
   docs/
   tests/
 ```
 
-## Local Development
+Primary responsibility split:
 
-Python tooling:
+- `workflow/`: reusable stage execution and frontier logic
+- `schemas/`: canonical runtime contracts
+- `adapters/`: product-specific adapter declarations and future adapter packages
+- `ops/`: local storage, policy lifecycle, trace export, and fixture tooling
+
+## CLI
+
+Preferred generic commands:
+
+- `suggest --adapter reply`
+- `record-outcome --adapter reply`
+- `export-trace --adapter reply`
+- `export-training-bundle --adapter reply`
+- `run-shadow-fixtures --adapter reply`
+- `policy-accept --adapter reply`
+- `policy-promote --adapter reply`
+- `policy-rollback --adapter reply`
+- `policy-status --adapter reply`
+- `runtime-status --adapter reply`
+- `show-config --adapter reply`
+- `write-config --adapter reply`
+
+Compatibility aliases:
+
+- `reply-suggest`
+- `reply-record-outcome`
+- `reply-export-trace`
+- `reply-export-training-bundle`
+- `reply-run-shadow-fixtures`
+- `reply-policy-accept`
+- `reply-policy-promote`
+- `reply-policy-rollback`
+- `reply-policy-status`
+- `reply-runtime-status`
+- `reply-show-config`
+- `reply-write-config`
+
+Examples:
 
 ```bash
+cd /Users/Shared/Projects/trinity
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli run-shadow-fixtures --adapter reply
+```
+
+## Runtime Storage
+
+Runtime data must live outside the repository working tree.
+
+Default adapter-scoped layout for new installs:
+
+```text
+~/Library/Application Support/Trinity/trinity_runtime/adapters/<adapter>/
+```
+
+Reply compatibility behavior:
+
+- if a machine already has `~/Library/Application Support/Trinity/reply_runtime/` and no new namespaced Reply root exists yet, `{trinity}` continues using the legacy root
+- new adapter integrations use adapter-scoped paths directly
+
+## Development
+
+Bootstrap:
+
+```bash
+cd /Users/Shared/Projects/trinity
 uv sync --dev
+```
+
+Validation:
+
+```bash
 uv run ruff check .
 uv run pytest
 ```
 
-macOS app:
+## Adapter Guidance
 
-```bash
-cd apps/macos
-swift build
-```
+When adding a new product adapter:
 
-## Additional Repository Docs
+1. keep reusable workflow logic in `core/trinity_core/workflow`
+2. keep product contract types and mapping logic at the adapter boundary
+3. namespace storage, fixtures, and accepted artifacts by adapter
+4. expose the adapter through the generic CLI before adding product-specific aliases
+5. prove the abstraction with deterministic tests and fixture replay
 
-Primary orientation and operating docs:
+Do not:
 
-- [docs/TRINITY_OVERVIEW.md](./docs/TRINITY_OVERVIEW.md)
-- [docs/BRAIN.md](./docs/BRAIN.md)
-- [docs/TRINITY_FORMAL_PRODUCTION_DEFINITION.md](./docs/TRINITY_FORMAL_PRODUCTION_DEFINITION.md)
-- [docs/TRINITY_PSEUDOCODE_SPECIFICATION.md](./docs/TRINITY_PSEUDOCODE_SPECIFICATION.md)
-- [docs/RUNTIME_STORAGE_POLICY.md](./docs/RUNTIME_STORAGE_POLICY.md)
-- [docs/STATUS.md](./docs/STATUS.md)
-- [docs/HANDOVER.md](./docs/HANDOVER.md)
+- move transport or approval semantics into runtime core
+- broaden core schemas with product-only fields unless at least two adapters need them
+- use repository-local runtime data as the default storage path
+
+## Read First
+
+- [docs/STATUS.md](/Users/Shared/Projects/trinity/docs/STATUS.md)
+- [docs/REPOSITORY_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPOSITORY_CONTRACT.md)
+- [docs/TRINITY_OVERVIEW.md](/Users/Shared/Projects/trinity/docs/TRINITY_OVERVIEW.md)
+- [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
+- [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
+- [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
+- [docs/POLICY_LOOP_REPO_BREAKDOWN.md](/Users/Shared/Projects/trinity/docs/POLICY_LOOP_REPO_BREAKDOWN.md)
 
 ## License
 

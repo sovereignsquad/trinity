@@ -8,17 +8,16 @@ This document defines the execution contract for the three core `{trinity}` stag
 - refiner
 - evaluator
 
-It implements issue `#5`.
-
 ## Runtime Boundary
 
-The stage layer is runtime orchestration code.
+The stage layer is reusable runtime orchestration code.
 
 It is not:
 
 - model-backend code
-- product-adapter code
+- product-adapter mapping code
 - UI code
+- transport or approval logic
 
 The runtime owns:
 
@@ -28,9 +27,19 @@ The runtime owns:
 - explicit partial-failure reporting
 - end-to-end stage orchestration
 
+## Adapter Boundary
+
+Adapters may:
+
+- build runtime requests
+- supply strategic context
+- map operator outcomes back into runtime events
+
+Adapters may not redefine stage semantics. Generator, refiner, and evaluator contracts must remain consistent across products unless the core runtime contract itself changes.
+
 ## Core Objects
 
-The workflow layer now exposes:
+The workflow layer exposes:
 
 - `GeneratorExecutionInput`
 - `RawGeneratedCandidate`
@@ -85,6 +94,7 @@ Normalization then:
 The refiner receives:
 
 - tenant identity
+- canonical evidence units
 - generated candidates
 - strategic context
 - feedback memory
@@ -107,6 +117,7 @@ Normalization then:
 The evaluator receives:
 
 - tenant identity
+- canonical evidence units
 - refined candidates
 - evidence lineage
 - strategic policy
@@ -137,7 +148,7 @@ Failures are surfaced explicitly.
 
 There are two failure classes:
 
-- stage-runner exceptions, such as backend or adapter failures
+- stage-runner exceptions, such as backend failures
 - item normalization failures, such as invalid raw output or unknown references
 
 Failures are returned as `StageFailure` records instead of being silently ignored or misrepresented as valid downstream work.
@@ -152,21 +163,9 @@ Failures are returned as `StageFailure` records instead of being silently ignore
 
 Each stage consumes only the normalized outputs of the previous stage.
 
+Canonical evidence is re-injected into refiner and evaluator inputs so later passes remain grounded in the original evidence batch rather than becoming candidate-only self-reference loops.
+
 Suppressed refiner outputs do not continue to evaluation.
-
-This keeps stage boundaries explicit and makes later optimization work by `{train}` inspectable.
-
-## Current Non-Goals
-
-This increment does not yet implement:
-
-- model adapters
-- persistence-backed execution logs
-- frontier ranking
-- semantic duplicate clustering
-- feedback replay
-
-Those belong in later issues.
 
 ## Verification
 

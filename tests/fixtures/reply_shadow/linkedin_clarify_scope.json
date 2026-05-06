@@ -1,0 +1,47 @@
+{
+  "description": "LinkedIn request where the legacy draft chooses a tighter clarification ask.",
+  "fixture_id": "linkedin_clarify_scope",
+  "legacy_suggestion": "Thanks Maya, happy to help. Do you want a short intro note or the full follow-up message?",
+  "metadata": {
+    "channel": "linkedin",
+    "source_product": "reply"
+  },
+  "thread_snapshot": {
+    "channel": "linkedin",
+    "company_id": "22222222-2222-5222-8222-222222222222",
+    "contact_handle": "linkedin://maya",
+    "context_snippets": [
+      {
+        "path": "snippet://maya/1",
+        "source": "vector-store",
+        "text": "Maya wants help drafting outbound partnership follow-up notes."
+      }
+    ],
+    "contract_version": "trinity.reply.v1alpha1",
+    "golden_examples": [
+      {
+        "path": "golden://linkedin/1",
+        "text": "Happy to help. Do you want the short version or the detailed one?"
+      }
+    ],
+    "latest_inbound_text": "Can you draft the note for me?",
+    "messages": [
+      {
+        "channel": "linkedin",
+        "handle": "linkedin://maya",
+        "message_id": "msg-1",
+        "occurred_at": "2026-05-03T11:58:00+00:00",
+        "role": "CONTACT",
+        "source": "linkedin",
+        "text": "Can you draft the note for me?"
+      }
+    ],
+    "metadata": {
+      "runtime_mode": "trinity-shadow",
+      "source_product": "reply",
+      "thread_message_count": "1"
+    },
+    "requested_at": "2026-05-03T12:00:00+00:00",
+    "thread_ref": "reply:linkedin:maya"
+  }
+}

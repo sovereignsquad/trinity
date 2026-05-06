@@ -2,106 +2,99 @@
 
 ## Purpose
 
-This document defines where `{trinity}` runtime data is allowed to live.
-
-The repository working tree is for development assets.
-
-The machine-local runtime data root is for operational state.
-
-These must not be mixed.
+This document defines where `{trinity}` runtime data is allowed to live and how adapter-scoped storage should be organized.
 
 ## Separation Rule
 
-Keep these categories separate:
+The repository working tree is for source-controlled development assets.
 
-### In-repository development assets
+Machine-local runtime directories are for operational state.
 
-These belong in the git repository:
+These must not be mixed.
+
+## In-Repository Development Assets
+
+These belong in git:
 
 - source code
 - tests
 - SSOT documentation
 - build scripts
-- sample fixtures and mock data intended for development
-- deterministic test resources
+- deterministic fixtures
+- synthetic sample datasets
+- documentation examples
 
-### Out-of-repository runtime assets
+## Out-of-Repository Runtime Assets
 
-These must not be stored in the git repository working tree by default:
+These must not live in the repository by default:
 
-- tenant evidence databases
+- evidence databases
 - candidate stores
-- feedback memory stores
+- feedback memory
 - frontier state
-- local operator state
+- accepted artifact state
+- model configuration
 - logs
 - caches
-- model downloads
-- embeddings
-- temporary exports
-- runtime lock files
-- cycle execution traces
-- real private customer or tenant data
+- runtime traces
+- exported bundles
+- real tenant or operator data
 
-## Default macOS Locations
+## Default Local Layout
 
-For local macOS operation, runtime data should live under user-scoped system directories rather than the repository.
+Base runtime roots:
 
-Recommended locations:
+- app support: `~/Library/Application Support/Trinity/`
+- cache: `~/Library/Caches/Trinity/`
+- logs: `~/Library/Logs/Trinity/`
 
-- app support data:
-  `~/Library/Application Support/Trinity/`
-- caches:
-  `~/Library/Caches/Trinity/`
-- logs:
-  `~/Library/Logs/Trinity/`
+Preferred adapter-scoped runtime layout for new installs:
 
-If the native app later gets a bundle identifier, the folder naming may become bundle-based, but the separation rule stays the same.
+```text
+~/Library/Application Support/Trinity/
+  trinity_runtime/
+    adapters/
+      <adapter>/
+        cycles/
+        exports/
+        training_bundles/
+        accepted_artifacts/
+        accepted_reply_policies/
+        model_config.json
+```
+
+## Reply Compatibility Rule
+
+The Reply adapter may continue using the legacy local root:
+
+```text
+~/Library/Application Support/Trinity/reply_runtime/
+```
+
+only when:
+
+- that root already exists locally, and
+- the new adapter-scoped Reply root does not yet exist
+
+This compatibility fallback exists to avoid breaking existing local machines during migration. New code must not introduce fresh hard-coded `reply_runtime` assumptions outside that explicit compatibility path.
 
 ## Repository Rule
 
-The repository root at `/Users/Shared/Projects/trinity` is not a runtime data root.
-
-It may contain:
-
-- source-controlled code
-- docs
-- tests
-- local developer tooling metadata already ignored by git
+`/Users/Shared/Projects/trinity` is not a runtime data root.
 
 It must not become the default home for live application state.
 
-## Allowed Exceptions
+## Implementation Rule
 
-These are acceptable in-repo only when clearly development-only:
+Runtime code should:
 
-- test fixtures
-- synthetic sample datasets
-- reproducible benchmark inputs
-- documentation examples
-
-These exceptions must never be confused with real runtime state.
-
-## Implementation Guidance
-
-When persistence work is implemented:
-
-1. runtime code should resolve an explicit machine-local data root
-2. the default macOS data root should point to `~/Library/Application Support/Trinity/`
-3. logs and caches should resolve to their own macOS locations
-4. the repository should remain free of live tenant data and operational state
-
-The repository now includes a runtime storage resolver in code that enforces this boundary for default local path resolution.
-
-## Git Rule
-
-If a directory exists mainly to hold runtime state, it should be:
-
-- outside the repository by default, and
-- ignored by git if developers temporarily create it inside the repository during local experiments
+1. resolve a machine-local base root
+2. resolve an adapter-specific runtime root beneath it
+3. store traces, bundles, policies, and config under that adapter root
+4. reject repository-local runtime roots by default
 
 ## Practical Decision Rule
 
-If the file is needed to build, test, review, or change the software, it probably belongs in the repository.
+If a file is needed to build, test, review, or change the software, it belongs in the repository.
 
-If the file is created because the software is running for a user or operator, it probably belongs in the runtime data root instead.
+If a file exists because the software is running for an operator or product integration, it belongs in runtime storage.

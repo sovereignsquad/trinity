@@ -1,9 +1,10 @@
-"""Deterministic Reply runtime spine owned by Trinity."""
+"""Reply adapter runtime implementation behind the generic Trinity facade."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
@@ -13,7 +14,9 @@ from uuid import UUID, uuid4
 from trinity_core.model_config import load_reply_model_config
 from trinity_core.ollama_client import OllamaChatClient
 from trinity_core.ops.cycle_store import RuntimeCycleStore, dataclass_payload
+from trinity_core.ops.reply_policy_store import ReplyPolicyStore
 from trinity_core.schemas import (
+    REPLY_CONTRACT_VERSION,
     AcceptedArtifactVersion,
     CandidateDraft,
     CandidateRecord,
@@ -24,16 +27,21 @@ from trinity_core.schemas import (
     EvidenceProvenance,
     EvidenceSourceRef,
     EvidenceSourceType,
+    EvidenceUnit,
     GoldenExample,
     RankedDraftSet,
+    ReplyBehaviorPolicy,
     ReplyFeedbackDisposition,
     ReplyFeedbackEvent,
     ReworkRoute,
     RuntimeTraceExport,
+    StageEvidenceAnchor,
     ThreadContextSnippet,
     ThreadMessageRole,
     ThreadMessageSnapshot,
     ThreadSnapshot,
+    TrainingBundle,
+    TrainingBundleType,
 )
 from trinity_core.workflow import (
     EvaluationDisposition,
@@ -91,8 +99,13 @@ Use only dispositions ELIGIBLE or REVISE.
 class ReplyRuntime:
     """Local runtime spine for Reply integration."""
 
-    def __init__(self, store: RuntimeCycleStore | None = None) -> None:
+    def __init__(
+        self,
+        store: RuntimeCycleStore | None = None,
+        policy_store: ReplyPolicyStore | None = None,
+    ) -> None:
         self.store = store or RuntimeCycleStore()
+        self.policy_store = policy_store or ReplyPolicyStore()
         self.model_config = load_reply_model_config()
         self.ollama_client = OllamaChatClient(
             base_url=self.model_config.ollama_base_url,
@@ -102,6 +115,8 @@ class ReplyRuntime:
     def suggest(self, snapshot: ThreadSnapshot) -> RankedDraftSet:
         cycle_id = uuid4()
         cycle_time = snapshot.requested_at
+        active_policy_record = self.policy_store.resolve(channel=snapshot.channel)
+        active_policy = active_policy_record.policy if active_policy_record else None
         evidence_units = self._build_evidence(snapshot)
         pipeline = execute_candidate_pipeline(
             GeneratorExecutionInput(
@@ -114,9 +129,9 @@ class ReplyRuntime:
                 topic_anchors=tuple(_topic_anchors(snapshot)),
                 freshness_reference=snapshot.requested_at,
             ),
-            generator_runner=self._generator_runner(snapshot),
-            refiner_runner=self._refiner_runner(snapshot),
-            evaluator_runner=self._evaluator_runner(snapshot),
+            generator_runner=self._generator_runner(snapshot, active_policy),
+            refiner_runner=self._refiner_runner(snapshot, active_policy),
+            evaluator_runner=self._evaluator_runner(snapshot, active_policy),
             now=cycle_time,
         )
         frontier = build_frontier(pipeline.evaluated.records, limit=3)
@@ -125,11 +140,9 @@ class ReplyRuntime:
             frontier,
             limit=3,
         )
-        artifact = AcceptedArtifactVersion(
-            artifact_key=ARTIFACT_KEY,
-            version=ARTIFACT_VERSION,
-            source_project=ARTIFACT_SOURCE_PROJECT,
-            accepted_at=cycle_time,
+        artifact = _resolved_artifact_version(
+            cycle_time,
+            active_policy_record=active_policy_record,
         )
         ranked = RankedDraftSet(
             cycle_id=cycle_id,
@@ -162,6 +175,7 @@ class ReplyRuntime:
             ),
             ranked_draft_set=ranked,
             accepted_artifact_version=artifact,
+            stage_evidence_anchors=_build_stage_evidence_anchors(evidence_units),
             model_routes=self._model_routes(),
         )
         self._persist_cycle(trace)
@@ -192,6 +206,21 @@ class ReplyRuntime:
         export_path = self.store.save_export(cycle_id, payload)
         return {"cycle_id": str(cycle_id), "trace_ref": str(export_path), "trace": payload}
 
+    def export_training_bundle(
+        self,
+        cycle_id: UUID,
+        *,
+        bundle_type: TrainingBundleType,
+    ) -> dict[str, Any]:
+        payload = self.store.load_cycle(cycle_id)
+        bundle = training_bundle_from_payload(payload, bundle_type=bundle_type)
+        bundle_path = self.store.save_bundle(bundle.bundle_id, dataclass_payload(bundle))
+        return {
+            "bundle_id": str(bundle.bundle_id),
+            "bundle_path": str(bundle_path),
+            "bundle": dataclass_payload(bundle),
+        }
+
     def _build_evidence(self, snapshot: ThreadSnapshot) -> tuple[Any, ...]:
         store = InMemoryEvidenceStore()
         accepted = []
@@ -206,13 +235,21 @@ class ReplyRuntime:
         self.store.save_cycle(trace.cycle_id, payload)
         self.store.save_export(trace.cycle_id, payload)
 
-    def _generator_runner(self, snapshot: ThreadSnapshot):
-        deterministic_runner = self._deterministic_generator_runner(snapshot)
+    def _generator_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
+        deterministic_runner = self._deterministic_generator_runner(snapshot, active_policy)
         if self.model_config.llm_enabled:
-            return self._llm_generator_runner(snapshot, deterministic_runner)
+            return self._llm_generator_runner(snapshot, deterministic_runner, active_policy)
         return deterministic_runner
 
-    def _deterministic_generator_runner(self, snapshot: ThreadSnapshot):
+    def _deterministic_generator_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
         def runner(stage_input: GeneratorExecutionInput):
             last_contact_name = _display_handle(snapshot.contact_handle)
             snippets = _top_snippet_lines(snapshot.context_snippets)
@@ -238,7 +275,7 @@ class ReplyRuntime:
                 RawGeneratedCandidate(
                     candidate_type=CandidateType.ACTION,
                     title="Direct reply",
-                    content=direct,
+                    content=_apply_behavior_policy(direct, active_policy),
                     source_evidence_ids=tuple(
                         str(unit.evidence_id) for unit in stage_input.evidence_units[:3]
                     ),
@@ -250,7 +287,7 @@ class ReplyRuntime:
                 RawGeneratedCandidate(
                     candidate_type=CandidateType.ACTION,
                     title="Confirm and advance",
-                    content=confirm,
+                    content=_apply_behavior_policy(confirm, active_policy),
                     source_evidence_ids=tuple(
                         str(unit.evidence_id) for unit in stage_input.evidence_units[:3]
                     ),
@@ -262,7 +299,7 @@ class ReplyRuntime:
                 RawGeneratedCandidate(
                     candidate_type=CandidateType.ACTION,
                     title="Clarify requirement",
-                    content=clarify,
+                    content=_apply_behavior_policy(clarify, active_policy),
                     source_evidence_ids=tuple(
                         str(unit.evidence_id) for unit in stage_input.evidence_units[:2]
                     ),
@@ -276,17 +313,28 @@ class ReplyRuntime:
 
         return runner
 
-    def _refiner_runner(self, snapshot: ThreadSnapshot):
-        deterministic_runner = self._deterministic_refiner_runner(snapshot)
+    def _refiner_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
+        deterministic_runner = self._deterministic_refiner_runner(snapshot, active_policy)
         if self.model_config.llm_enabled:
-            return self._llm_refiner_runner(snapshot, deterministic_runner)
+            return self._llm_refiner_runner(snapshot, deterministic_runner, active_policy)
         return deterministic_runner
 
-    def _deterministic_refiner_runner(self, snapshot: ThreadSnapshot):
+    def _deterministic_refiner_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
         def runner(stage_input: RefinerExecutionInput):
             results = []
             for candidate in stage_input.generated_candidates:
-                compact = _truncate(candidate.content.replace("  ", " "))
+                compact = _apply_behavior_policy(
+                    _truncate(candidate.content.replace("  ", " ")),
+                    active_policy,
+                )
                 results.append(
                     RawRefinerResult(
                         disposition=RefinerDisposition.REFINE,
@@ -304,10 +352,14 @@ class ReplyRuntime:
 
         return runner
 
-    def _evaluator_runner(self, snapshot: ThreadSnapshot):
+    def _evaluator_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
         deterministic_runner = self._deterministic_evaluator_runner(snapshot)
         if self.model_config.llm_enabled:
-            return self._llm_evaluator_runner(snapshot, deterministic_runner)
+            return self._llm_evaluator_runner(snapshot, deterministic_runner, active_policy)
         return deterministic_runner
 
     def _deterministic_evaluator_runner(self, snapshot: ThreadSnapshot):
@@ -359,10 +411,15 @@ class ReplyRuntime:
 
         return runner
 
-    def _llm_generator_runner(self, snapshot: ThreadSnapshot, fallback_runner):
+    def _llm_generator_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        fallback_runner,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
         def runner(stage_input: GeneratorExecutionInput):
             try:
-                prompt = _build_generator_prompt(snapshot, stage_input)
+                prompt = _build_generator_prompt(snapshot, stage_input, active_policy)
                 payload = self.ollama_client.chat_json(
                     route=self.model_config.generator,
                     system_prompt=GENERATOR_SYSTEM_PROMPT,
@@ -386,7 +443,7 @@ class ReplyRuntime:
                             candidate_type=CandidateType.ACTION,
                             title=_normalize_llm_text(item.get("title"))
                             or _strategy_title(strategy, index),
-                            content=content,
+                            content=_apply_behavior_policy(content, active_policy),
                             source_evidence_ids=evidence_refs or tuple(
                                 str(unit.evidence_id) for unit in stage_input.evidence_units[:1]
                             ),
@@ -405,12 +462,22 @@ class ReplyRuntime:
 
         return runner
 
-    def _llm_refiner_runner(self, snapshot: ThreadSnapshot, fallback_runner):
+    def _llm_refiner_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        fallback_runner,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
         def runner(stage_input: RefinerExecutionInput):
             try:
                 results = []
                 for candidate in stage_input.generated_candidates:
-                    prompt = _build_refiner_prompt(snapshot, candidate)
+                    prompt = _build_refiner_prompt(
+                        snapshot,
+                        stage_input,
+                        candidate,
+                        active_policy,
+                    )
                     payload = self.ollama_client.chat_json(
                         route=self.model_config.refiner,
                         system_prompt=REFINER_SYSTEM_PROMPT,
@@ -424,7 +491,7 @@ class ReplyRuntime:
                             disposition=RefinerDisposition.REFINE,
                             parent_candidate_id=str(candidate.candidate_id),
                             title=_normalize_llm_text(payload.get("title")) or candidate.title,
-                            content=_truncate(refined_text),
+                            content=_apply_behavior_policy(refined_text, active_policy),
                             impact=_bounded_int(payload.get("impact"), candidate.scores.impact),
                             confidence=_bounded_int(
                                 payload.get("confidence"), candidate.scores.confidence
@@ -452,10 +519,15 @@ class ReplyRuntime:
 
         return runner
 
-    def _llm_evaluator_runner(self, snapshot: ThreadSnapshot, fallback_runner):
+    def _llm_evaluator_runner(
+        self,
+        snapshot: ThreadSnapshot,
+        fallback_runner,
+        active_policy: ReplyBehaviorPolicy | None,
+    ):
         def runner(stage_input: EvaluatorExecutionInput):
             try:
-                prompt = _build_evaluator_prompt(snapshot, stage_input)
+                prompt = _build_evaluator_prompt(snapshot, stage_input, active_policy)
                 payload = self.ollama_client.chat_json(
                     route=self.model_config.evaluator,
                     system_prompt=EVALUATOR_SYSTEM_PROMPT,
@@ -586,6 +658,10 @@ def outcome_event_from_payload(payload: dict[str, Any]) -> DraftOutcomeEvent:
     )
 
 
+def training_bundle_type_from_payload(value: str) -> TrainingBundleType:
+    return TrainingBundleType(str(value))
+
+
 def _reply_feedback_from_outcome(event: DraftOutcomeEvent) -> ReplyFeedbackEvent | None:
     if event.candidate_id is None:
         return None
@@ -610,6 +686,148 @@ def _reply_feedback_from_outcome(event: DraftOutcomeEvent) -> ReplyFeedbackEvent
         edited_text=event.final_text
         if feedback_disposition is ReplyFeedbackDisposition.EDITED
         else None,
+    )
+
+
+def training_bundle_from_payload(
+    payload: dict[str, Any],
+    *,
+    bundle_type: TrainingBundleType,
+) -> TrainingBundle:
+    ranked_draft_set = _ranked_draft_set_from_payload(payload["ranked_draft_set"])
+    if "draft_outcome_event" in payload:
+        outcome_event = outcome_event_from_payload(payload["draft_outcome_event"])
+    else:
+        outcome_event = _bundle_outcome_event(payload)
+    cycle_id = UUID(
+        payload.get("cycle_id")
+        or payload.get("labels", {}).get("cycle_id")
+        or payload["ranked_draft_set"]["cycle_id"]
+    )
+    return TrainingBundle(
+        bundle_id=TrainingBundle.build_bundle_id(cycle_id=cycle_id, bundle_type=bundle_type),
+        bundle_type=bundle_type,
+        exported_at=_parse_datetime(
+            payload.get("exported_at") or payload["ranked_draft_set"]["generated_at"]
+        ),
+        thread_snapshot=thread_snapshot_from_payload(payload["thread_snapshot"]),
+        evidence_units=tuple(
+            _evidence_unit_from_payload(item) for item in payload.get("evidence_units", [])
+        ),
+        ranked_draft_set=ranked_draft_set,
+        selected_candidate_id=UUID(payload["selected_candidate_id"])
+        if payload.get("selected_candidate_id")
+        else outcome_event.candidate_id,
+        draft_outcome_event=outcome_event,
+        labels={
+            **{str(key): str(value) for key, value in payload.get("labels", {}).items()},
+            "bundle_type": bundle_type.value,
+            "cycle_id": str(cycle_id),
+            "trace_ref": str(payload["ranked_draft_set"].get("trace_ref") or ""),
+            "channel": ranked_draft_set.channel,
+        },
+        contract_version=str(payload.get("contract_version") or REPLY_CONTRACT_VERSION),
+    )
+
+
+def _bundle_outcome_event(payload: dict[str, Any]) -> DraftOutcomeEvent:
+    feedback_payloads = payload.get("feedback_events", [])
+    if not feedback_payloads:
+        raise ValueError("Cannot export training bundle without feedback_events.")
+    eligible = [
+        outcome_event_from_payload(item)
+        for item in feedback_payloads
+        if str(item.get("disposition")) != DraftOutcomeDisposition.SHOWN.value
+    ]
+    if not eligible:
+        raise ValueError("Cannot export training bundle with only SHOWN feedback events.")
+    return sorted(
+        eligible,
+        key=lambda event: (
+            event.occurred_at.timestamp(),
+            event.disposition.value,
+            str(event.candidate_id or ""),
+        ),
+    )[-1]
+
+
+def _ranked_draft_set_from_payload(payload: dict[str, Any]) -> RankedDraftSet:
+    return RankedDraftSet(
+        cycle_id=UUID(payload["cycle_id"]),
+        thread_ref=str(payload["thread_ref"]),
+        channel=str(payload["channel"]),
+        generated_at=_parse_datetime(payload["generated_at"]),
+        drafts=tuple(_candidate_draft_from_payload(item) for item in payload["drafts"]),
+        accepted_artifact_version=_artifact_version_from_payload(payload["accepted_artifact_version"]),
+        trace_ref=payload.get("trace_ref"),
+        contract_version=str(payload.get("contract_version") or REPLY_CONTRACT_VERSION),
+    )
+
+
+def _candidate_draft_from_payload(payload: dict[str, Any]) -> CandidateDraft:
+    from trinity_core.schemas import CandidateScores
+
+    return CandidateDraft(
+        company_id=UUID(payload["company_id"]),
+        candidate_id=UUID(payload["candidate_id"]),
+        thread_ref=str(payload["thread_ref"]),
+        recipient_handle=str(payload["recipient_handle"]),
+        channel=str(payload["channel"]),
+        rank=int(payload["rank"]),
+        draft_text=str(payload["draft_text"]),
+        rationale=str(payload["rationale"]),
+        risk_flags=tuple(str(item) for item in payload.get("risk_flags", [])),
+        delivery_eligible=bool(payload["delivery_eligible"]),
+        scores=CandidateScores(**payload["scores"]),
+        source_evidence_ids=tuple(UUID(item) for item in payload["source_evidence_ids"]),
+        candidate_type=CandidateType(
+            str(payload.get("candidate_type") or CandidateType.ACTION.value)
+        ),
+        contract_version=str(payload.get("contract_version") or REPLY_CONTRACT_VERSION),
+    )
+
+
+def _artifact_version_from_payload(payload: dict[str, Any]) -> AcceptedArtifactVersion:
+    return AcceptedArtifactVersion(
+        artifact_key=str(payload["artifact_key"]),
+        version=str(payload["version"]),
+        source_project=str(payload["source_project"]),
+        accepted_at=_parse_datetime(payload["accepted_at"]),
+    )
+
+
+def _resolved_artifact_version(
+    cycle_time: datetime,
+    *,
+    active_policy_record,
+) -> AcceptedArtifactVersion:
+    if active_policy_record is not None:
+        return active_policy_record.artifact
+    return AcceptedArtifactVersion(
+        artifact_key=ARTIFACT_KEY,
+        version=ARTIFACT_VERSION,
+        source_project=ARTIFACT_SOURCE_PROJECT,
+        accepted_at=cycle_time,
+    )
+
+
+def _evidence_unit_from_payload(payload: dict[str, Any]) -> EvidenceUnit:
+    return EvidenceUnit(
+        company_id=UUID(payload["company_id"]),
+        evidence_id=UUID(payload["evidence_id"]),
+        source_type=EvidenceSourceType(str(payload["source_type"])),
+        source_ref=EvidenceSourceRef(
+            external_id=str(payload["source_ref"]["external_id"]),
+            locator=payload["source_ref"].get("locator"),
+            version=payload["source_ref"].get("version"),
+        ),
+        content_raw=str(payload["content_raw"]),
+        content_canonical=str(payload["content_canonical"]),
+        content_hash=str(payload["content_hash"]),
+        metadata={str(key): str(value) for key, value in payload.get("metadata", {}).items()},
+        topic_hints=tuple(str(item) for item in payload.get("topic_hints", [])),
+        created_at=_parse_datetime(payload["created_at"]),
+        updated_at=_parse_datetime(payload["updated_at"]),
     )
 
 
@@ -734,7 +952,11 @@ def _snapshot_hash(snapshot: ThreadSnapshot) -> str:
     return hashlib.sha256(repr(dataclass_payload(snapshot)).encode("utf-8")).hexdigest()
 
 
-def _build_generator_prompt(snapshot: ThreadSnapshot, stage_input: GeneratorExecutionInput) -> str:
+def _build_generator_prompt(
+    snapshot: ThreadSnapshot,
+    stage_input: GeneratorExecutionInput,
+    active_policy: ReplyBehaviorPolicy | None,
+) -> str:
     payload = {
         "thread_ref": snapshot.thread_ref,
         "channel": snapshot.channel,
@@ -751,11 +973,17 @@ def _build_generator_prompt(snapshot: ThreadSnapshot, stage_input: GeneratorExec
         ],
         "context_snippets": [snippet.text for snippet in snapshot.context_snippets[:6]],
         "golden_examples": [example.text for example in snapshot.golden_examples[:3]],
+        "active_policy": dataclass_payload(active_policy) if active_policy is not None else None,
     }
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
 
-def _build_refiner_prompt(snapshot: ThreadSnapshot, candidate: CandidateRecord) -> str:
+def _build_refiner_prompt(
+    snapshot: ThreadSnapshot,
+    stage_input: RefinerExecutionInput,
+    candidate: CandidateRecord,
+    active_policy: ReplyBehaviorPolicy | None,
+) -> str:
     payload = {
         "thread_ref": snapshot.thread_ref,
         "channel": snapshot.channel,
@@ -767,19 +995,40 @@ def _build_refiner_prompt(snapshot: ThreadSnapshot, candidate: CandidateRecord) 
             "content": candidate.content,
             "semantic_tags": list(candidate.semantic_tags),
         },
+        "anchored_evidence": [
+            {
+                "evidence_id": str(evidence.evidence_id),
+                "content": evidence.content_canonical,
+                "source_type": evidence.source_type.value,
+            }
+            for evidence in _evidence_for_candidate(stage_input.evidence_units, candidate)
+        ],
         "context_snippets": [snippet.text for snippet in snapshot.context_snippets[:4]],
         "golden_examples": [example.text for example in snapshot.golden_examples[:2]],
+        "active_policy": dataclass_payload(active_policy) if active_policy is not None else None,
     }
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
 
-def _build_evaluator_prompt(snapshot: ThreadSnapshot, stage_input: EvaluatorExecutionInput) -> str:
+def _build_evaluator_prompt(
+    snapshot: ThreadSnapshot,
+    stage_input: EvaluatorExecutionInput,
+    active_policy: ReplyBehaviorPolicy | None,
+) -> str:
     payload = {
         "thread_ref": snapshot.thread_ref,
         "channel": snapshot.channel,
         "contact_handle": snapshot.contact_handle,
         "latest_inbound_text": snapshot.latest_inbound_text,
         "asks_question": "?" in snapshot.latest_inbound_text,
+        "anchored_evidence": [
+            {
+                "evidence_id": str(evidence.evidence_id),
+                "content": evidence.content_canonical,
+                "source_type": evidence.source_type.value,
+            }
+            for evidence in stage_input.evidence_units[:6]
+        ],
         "candidates": [
             {
                 "candidate_id": str(candidate.candidate_id),
@@ -789,6 +1038,7 @@ def _build_evaluator_prompt(snapshot: ThreadSnapshot, stage_input: EvaluatorExec
             }
             for candidate in stage_input.refined_candidates
         ],
+        "active_policy": dataclass_payload(active_policy) if active_policy is not None else None,
     }
     return json.dumps(payload, ensure_ascii=True, indent=2)
 
@@ -875,6 +1125,72 @@ def _truncate(text: str, limit: int = 240) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 1].rstrip() + "…"
+
+
+def _apply_behavior_policy(text: str, policy: ReplyBehaviorPolicy | None) -> str:
+    shaped = _truncate(text)
+    if policy is None:
+        return shaped
+    if policy.channel_rules.opening_style == "no_opening":
+        shaped = re.sub(
+            r"^(thanks|thank you|hi|hello|got it|noted)\s+[^,]*,?\s*",
+            "",
+            shaped,
+            flags=re.IGNORECASE,
+        )
+    elif policy.channel_rules.opening_style == "brief_acknowledgment" and not re.match(
+        r"^(thanks|thank you|hi|hello|got it|noted)\b",
+        shaped,
+        flags=re.IGNORECASE,
+    ):
+        shaped = f"Thanks, {shaped[:1].lower() + shaped[1:] if shaped else ''}".strip()
+    if policy.channel_rules.emoji_policy == "none":
+        shaped = re.sub(r"[\U0001F300-\U0001FAFF]", "", shaped)
+    if (
+        policy.channel_rules.newline_policy == "single_paragraph"
+        or policy.brevity_preferences.prefer_single_paragraph
+    ):
+        shaped = " ".join(line.strip() for line in shaped.splitlines() if line.strip())
+    if policy.brevity_preferences.max_sentences is not None:
+        shaped = _truncate_sentences(shaped, policy.brevity_preferences.max_sentences)
+    if (
+        policy.brevity_preferences.max_chars is not None
+        and len(shaped) > policy.brevity_preferences.max_chars
+    ):
+        shaped = _truncate(shaped, limit=policy.brevity_preferences.max_chars)
+    return _truncate(shaped)
+
+
+def _truncate_sentences(text: str, max_sentences: int) -> str:
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()]
+    if len(parts) <= max_sentences:
+        return text.strip()
+    return " ".join(parts[:max_sentences]).strip()
+
+
+def _evidence_for_candidate(
+    evidence_units: tuple[EvidenceUnit, ...],
+    candidate: CandidateRecord,
+) -> tuple[EvidenceUnit, ...]:
+    source_ids = set(candidate.lineage.source_evidence_ids)
+    matched = tuple(evidence for evidence in evidence_units if evidence.evidence_id in source_ids)
+    return matched or evidence_units[:3]
+
+
+def _build_stage_evidence_anchors(
+    evidence_units: tuple[EvidenceUnit, ...],
+) -> tuple[StageEvidenceAnchor, ...]:
+    evidence_ids = tuple(evidence.evidence_id for evidence in evidence_units)
+    content_hashes = tuple(evidence.content_hash for evidence in evidence_units)
+    return tuple(
+        StageEvidenceAnchor(
+            stage_name=stage_name,
+            anchor_kind="canonical_input_reinjected",
+            evidence_ids=evidence_ids,
+            content_hashes=content_hashes,
+        )
+        for stage_name in ("generator", "refiner", "evaluator")
+    )
 
 
 def _parse_datetime(value: str) -> datetime:

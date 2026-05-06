@@ -7,7 +7,7 @@ This document turns the current cross-project direction into an exact repo-by-re
 The target loop is:
 
 1. `{reply}` exports deterministic operator reality.
-2. `{trinity}` owns live drafting and policy application.
+2. `{trinity}` owns live drafting and policy application through explicit product adapters.
 3. `{train}` optimizes narrow behavior slices offline.
 4. promotion back into `{trinity}` is explicit, versioned, replay-gated, and reversible.
 
@@ -18,7 +18,7 @@ This is not autonomous runtime mutation.
 ## Current Boundary
 
 - `{reply}` owns ingestion, operator workflow, send execution, and outcome capture.
-- `{trinity}` owns live drafting runtime behavior.
+- `{trinity}` owns live drafting runtime behavior and adapter-scoped artifact application.
 - `{train}` owns bounded offline optimization only.
 
 ## Repo-By-Repo Issues
@@ -99,9 +99,9 @@ Initial sections:
 Initial scopes:
 - `global`
 - `channel`
-- `thread_type`
 
 Out of scope initially:
+- `thread_type`
 - contact-specific policy
 - company-specific policy
 - hidden runtime heuristics
@@ -209,7 +209,6 @@ Inputs:
 - final sent text
 - rewrite severity
 - channel
-- thread type
 
 Output:
 - candidate `ReplyBehaviorPolicy` proposal for tone
@@ -346,7 +345,7 @@ Recommended fields:
 - `artifact_key: str`
 - `version: str`
 - `scope_kind: str`
-  - allowed initially: `global`, `channel`, `thread_type`
+  - allowed initially: `global`, `channel`
 - `scope_value: str | None`
 - `created_at: datetime (timezone-aware UTC)`
 - `source_project: str`
@@ -400,9 +399,12 @@ Recommended fields:
 - `ranked_draft_set: RankedDraftSet`
 - `selected_candidate_id: UUID | None`
 - `draft_outcome_event: DraftOutcomeEvent`
-- `active_policy_version: AcceptedArtifactVersion`
 - `labels: Mapping[str, str]`
 - `contract_version: str`
+
+Policy provenance note:
+- `ranked_draft_set.accepted_artifact_version` is the canonical policy/artifact provenance for the bundle
+- `TrainingBundle` should not duplicate that provenance as a second top-level field unless a strict equality rule is defined
 
 ### `AcceptedPolicyVersion`
 

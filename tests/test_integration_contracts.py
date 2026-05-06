@@ -8,6 +8,7 @@ from uuid import uuid4
 import pytest
 from trinity_core.model_config import TrinityReplyModelConfig, TrinityRoleRoute
 from trinity_core.ops.cycle_store import RuntimeCyclePaths, RuntimeCycleStore
+from trinity_core.ops.reply_policy_store import ReplyPolicyStore, ReplyPolicyStorePaths
 from trinity_core.reply_runtime import ReplyRuntime
 from trinity_core.schemas import (
     AcceptedArtifactVersion,
@@ -19,14 +20,20 @@ from trinity_core.schemas import (
     DraftOutcomeDisposition,
     DraftOutcomeEvent,
     RankedDraftSet,
+    ReplyBehaviorPolicy,
+    ReplyBehaviorScopeKind,
+    ReplyBrevityPreferences,
+    ReplyChannelRules,
     ReplyDraftCandidate,
     ReplyEvidenceEnvelope,
     ReplyFeedbackDisposition,
     ReplyFeedbackEvent,
+    ReplyTonePreferences,
     ThreadContextSnippet,
     ThreadMessageRole,
     ThreadMessageSnapshot,
     ThreadSnapshot,
+    TrainingBundleType,
 )
 
 
@@ -124,6 +131,7 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
     runtime = ReplyRuntime(
         store=RuntimeCycleStore(
             RuntimeCyclePaths(
+                adapter_name="reply",
                 root_dir=tmp_path,
                 cycles_dir=tmp_path / "cycles",
                 exports_dir=tmp_path / "exports",
@@ -187,12 +195,22 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
     assert payload["feedback_events"][0]["disposition"] == DraftOutcomeDisposition.SENT_AS_IS.value
     assert payload["frontier_candidate_ids"]
     assert payload["accepted_artifact_version"]["artifact_key"] == "reply_ranker_policy"
+    assert [anchor["stage_name"] for anchor in payload["stage_evidence_anchors"]] == [
+        "generator",
+        "refiner",
+        "evaluator",
+    ]
+    assert all(
+        anchor["anchor_kind"] == "canonical_input_reinjected"
+        for anchor in payload["stage_evidence_anchors"]
+    )
 
 
 def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path) -> None:
     runtime = ReplyRuntime(
         store=RuntimeCycleStore(
             RuntimeCyclePaths(
+                adapter_name="reply",
                 root_dir=tmp_path,
                 cycles_dir=tmp_path / "cycles",
                 exports_dir=tmp_path / "exports",
@@ -227,10 +245,161 @@ def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path
     assert all(draft.draft_text for draft in ranked.drafts)
 
 
+def test_reply_runtime_exports_training_bundle_from_terminal_outcome(tmp_path: Path) -> None:
+    runtime = ReplyRuntime(
+        store=RuntimeCycleStore(
+            RuntimeCyclePaths(
+                adapter_name="reply",
+                root_dir=tmp_path,
+                cycles_dir=tmp_path / "cycles",
+                exports_dir=tmp_path / "exports",
+            )
+        )
+    )
+    runtime.store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    runtime.store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+    snapshot = ThreadSnapshot(
+        company_id=uuid4(),
+        thread_ref="reply:linkedin:alice",
+        channel="linkedin",
+        contact_handle="linkedin://alice",
+        latest_inbound_text="Can you send the updated numbers today?",
+        requested_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+        messages=(
+            ThreadMessageSnapshot(
+                message_id="msg-1",
+                role=ThreadMessageRole.CONTACT,
+                text="Can you send the updated numbers today?",
+                occurred_at=datetime(2026, 5, 1, 11, 59, tzinfo=UTC),
+                channel="linkedin",
+                source="linkedin",
+                handle="linkedin://alice",
+            ),
+        ),
+    )
+
+    ranked = runtime.suggest(snapshot)
+    runtime.record_outcome(
+        DraftOutcomeEvent(
+            company_id=snapshot.company_id,
+            cycle_id=ranked.cycle_id,
+            thread_ref=snapshot.thread_ref,
+            channel=snapshot.channel,
+            candidate_id=ranked.drafts[0].candidate_id,
+            disposition=DraftOutcomeDisposition.SENT_AS_IS,
+            occurred_at=datetime(2026, 5, 1, 12, 1, tzinfo=UTC),
+            original_draft_text=ranked.drafts[0].draft_text,
+            final_text=ranked.drafts[0].draft_text,
+            edit_distance=0.0,
+            latency_ms=1000,
+            send_result="ok",
+        )
+    )
+
+    exported = runtime.export_training_bundle(
+        ranked.cycle_id,
+        bundle_type=TrainingBundleType.TONE_LEARNING,
+    )
+
+    assert exported["bundle"]["bundle_type"] == TrainingBundleType.TONE_LEARNING.value
+    assert exported["bundle"]["draft_outcome_event"]["disposition"] == "SENT_AS_IS"
+    assert exported["bundle"]["selected_candidate_id"] == str(ranked.drafts[0].candidate_id)
+    assert exported["bundle"]["ranked_draft_set"]["accepted_artifact_version"]["artifact_key"] == (
+        "reply_ranker_policy"
+    )
+    assert Path(exported["bundle_path"]).exists()
+
+
+def test_reply_runtime_applies_accepted_channel_policy_and_provenance(tmp_path: Path) -> None:
+    cycle_store = RuntimeCycleStore(
+        RuntimeCyclePaths(
+            adapter_name="reply",
+            root_dir=tmp_path / "runtime",
+            cycles_dir=tmp_path / "runtime" / "cycles",
+            exports_dir=tmp_path / "runtime" / "exports",
+        )
+    )
+    cycle_store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    cycle_store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+    policy_store = ReplyPolicyStore(
+        ReplyPolicyStorePaths(
+            adapter_name="reply",
+            root_dir=tmp_path / "accepted_reply_policies",
+            scopes_dir=tmp_path / "accepted_reply_policies" / "scopes",
+        )
+    )
+    policy_store.paths.root_dir.mkdir(parents=True, exist_ok=True)
+    policy_store.paths.scopes_dir.mkdir(parents=True, exist_ok=True)
+    accepted_artifact = AcceptedArtifactVersion(
+        artifact_key="reply_behavior_policy",
+        version="email.v2",
+        source_project="train",
+        accepted_at=datetime(2026, 5, 3, 12, 0, tzinfo=UTC),
+    )
+    policy_store.accept(
+        ReplyBehaviorPolicy(
+            artifact_key="reply_behavior_policy",
+            version="email.v2",
+            scope_kind=ReplyBehaviorScopeKind.CHANNEL,
+            scope_value="email",
+            created_at=datetime(2026, 5, 3, 11, 0, tzinfo=UTC),
+            source_project="train",
+            tone_preferences=ReplyTonePreferences(
+                target_tone="calm",
+                formality="medium",
+                warmth="warm",
+                directness="direct",
+            ),
+            brevity_preferences=ReplyBrevityPreferences(
+                target_length="compact",
+                max_sentences=2,
+                max_chars=140,
+                prefer_single_paragraph=True,
+            ),
+            channel_rules=ReplyChannelRules(
+                opening_style="no_opening",
+                closing_style="no_signoff",
+                emoji_policy="none",
+                url_policy="plain_urls",
+                attachment_reference_policy="mention_if_used",
+                newline_policy="single_paragraph",
+            ),
+        ),
+        artifact=accepted_artifact,
+    )
+    runtime = ReplyRuntime(store=cycle_store, policy_store=policy_store)
+    snapshot = ThreadSnapshot(
+        company_id=uuid4(),
+        thread_ref="reply:email:alice@example.com",
+        channel="email",
+        contact_handle="alice@example.com",
+        latest_inbound_text="Can you send the updated numbers today?",
+        requested_at=datetime(2026, 5, 3, 12, 0, tzinfo=UTC),
+        messages=(
+            ThreadMessageSnapshot(
+                message_id="msg-1",
+                role=ThreadMessageRole.CONTACT,
+                text="Can you send the updated numbers today?",
+                occurred_at=datetime(2026, 5, 3, 11, 59, tzinfo=UTC),
+                channel="email",
+                source="email",
+                handle="alice@example.com",
+            ),
+        ),
+    )
+
+    ranked = runtime.suggest(snapshot)
+
+    assert ranked.accepted_artifact_version.artifact_key == "reply_behavior_policy"
+    assert ranked.accepted_artifact_version.version == "email.v2"
+    assert all(not draft.draft_text.lower().startswith("thanks") for draft in ranked.drafts)
+
+
 def test_reply_runtime_backfills_three_distinct_drafts_when_llm_duplicates(tmp_path: Path) -> None:
     runtime = ReplyRuntime(
         store=RuntimeCycleStore(
             RuntimeCyclePaths(
+                adapter_name="reply",
                 root_dir=tmp_path,
                 cycles_dir=tmp_path / "cycles",
                 exports_dir=tmp_path / "exports",
