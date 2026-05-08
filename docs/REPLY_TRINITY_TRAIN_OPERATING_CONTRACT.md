@@ -10,6 +10,10 @@ Prove one narrow, replayable integration spine without collapsing repository own
 4. `trinity` persists the cycle and exports a `RuntimeTraceExport`.
 5. `{train}` consumes exported traces and optimizes declared `{trinity}` artifacts only.
 
+This is the primary operating contract for current work.
+
+It is intentionally narrower than a future multi-adapter platform story.
+
 ## Ownership
 
 - `reply`
@@ -26,6 +30,47 @@ Prove one narrow, replayable integration spine without collapsing repository own
   - trace ingestion
   - replay fixtures
   - bounded artifact optimization scaffolding
+
+## Individual Focus
+
+### `{reply}`
+
+Focus on:
+
+- constructing stable `ThreadSnapshot` payloads
+- preserving `company_id`, `cycle_id`, `trace_ref`, and accepted artifact provenance
+- capturing deterministic operator outcomes
+- keeping send execution and channel authority inside the product shell
+
+### `{trinity}`
+
+Focus on:
+
+- turning Reply snapshots into ranked drafts
+- persisting replayable cycle state
+- exporting bounded training bundles
+- reviewing and accepting policy proposals with explicit provenance and holdout discipline
+
+### `{train}`
+
+Focus on:
+
+- consuming bounded Trinity artifacts only
+- proposing reply behavior policies
+- emitting eval reports, not runtime mutations
+- staying outside live drafting and transport ownership
+
+## Combined Workflow
+
+The current end-to-end workflow is:
+
+1. `{reply}` captures one bounded thread snapshot and calls `{trinity}`.
+2. `{trinity}` returns ranked drafts with artifact provenance.
+3. `{reply}` shows, selects, edits, sends, or rejects and records a deterministic outcome.
+4. `{trinity}` persists cycle state and can export bounded learning bundles.
+5. `{train}` consumes those bundles and proposes one explicit Reply behavior artifact.
+6. `{trinity}` reviews, optionally replays holdout bundles, and only then accepts or rejects the proposal.
+7. `{reply}` receives the effect only through later `{trinity}` runtime outputs, never by direct mutation from `{train}`.
 
 ## Canonical Contracts
 

@@ -10,11 +10,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from trinity_core.adapters import IMPACT_ADAPTER_NAME, REPLY_ADAPTER_NAME, require_supported_adapter
-from trinity_core.impact_runtime import (
-    impact_outcome_event_from_payload,
-    impact_profile_snapshot_from_payload,
-)
+from trinity_core.adapters import REPLY_ADAPTER_NAME, require_supported_adapter
 from trinity_core.model_config import (
     TrinityReplyModelConfig,
     TrinityRoleRoute,
@@ -77,13 +73,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "suggest":
         payload = _load_json(args.input_file)
-        result = runtime.suggest(_load_snapshot_for_adapter(adapter_name, payload))
+        result = runtime.suggest(thread_snapshot_from_payload(payload))
         _write_json(dataclass_payload(result))
         return 0
 
     if command == "record-outcome":
         payload = _load_json(args.input_file)
-        result = runtime.record_outcome(_load_outcome_for_adapter(adapter_name, payload))
+        result = runtime.record_outcome(outcome_event_from_payload(payload))
         _write_json(result)
         return 0
 
@@ -627,7 +623,7 @@ def _add_adapter_argument(parser: Any) -> None:
     parser.add_argument(
         "--adapter",
         default=REPLY_ADAPTER_NAME,
-        help="Product adapter to use. Currently supported: reply, impact.",
+        help="Product adapter to use. Currently supported: reply.",
     )
 
 
@@ -697,22 +693,6 @@ def _parse_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("Timestamp must be timezone-aware.")
     return parsed
-
-
-def _load_snapshot_for_adapter(adapter_name: str, payload: dict[str, Any]) -> Any:
-    if adapter_name == REPLY_ADAPTER_NAME:
-        return thread_snapshot_from_payload(payload)
-    if adapter_name == IMPACT_ADAPTER_NAME:
-        return impact_profile_snapshot_from_payload(payload)
-    raise AssertionError(f"Unhandled adapter snapshot loader: {adapter_name}")
-
-
-def _load_outcome_for_adapter(adapter_name: str, payload: dict[str, Any]) -> Any:
-    if adapter_name == REPLY_ADAPTER_NAME:
-        return outcome_event_from_payload(payload)
-    if adapter_name == IMPACT_ADAPTER_NAME:
-        return impact_outcome_event_from_payload(payload)
-    raise AssertionError(f"Unhandled adapter outcome loader: {adapter_name}")
 
 
 def _require_reply_adapter(adapter_name: str, command: str) -> None:

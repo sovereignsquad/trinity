@@ -26,7 +26,6 @@ Implemented today:
 Implemented adapter support:
 
 - `reply`
-- `impact`
 
 Compatibility guarantee:
 
@@ -61,11 +60,8 @@ Primary responsibility split:
 Preferred generic commands:
 
 - `suggest --adapter reply`
-- `suggest --adapter impact`
 - `record-outcome --adapter reply`
-- `record-outcome --adapter impact`
 - `export-trace --adapter reply`
-- `export-trace --adapter impact`
 - `export-training-bundle --adapter reply`
 - `train-propose-policy --adapter reply`
 - `policy-review-surface --adapter reply`
@@ -108,7 +104,7 @@ Policy acceptance note:
 - serious policy review and acceptance flows now default to holdout replay
 - no-holdout acceptance is restricted to explicit local/dev override with `--allow-no-holdout`
 - exported training bundles now preserve negative samples and policy-resolution context so `{train}` can learn from bounded runtime artifacts without silently reinterpreting the whole trace
-- the policy, Train handoff, and shadow-fixture lanes are currently Reply-only even though the runtime now supports both `reply` and `impact`
+- the current runtime, policy, Train handoff, and shadow-fixture lanes are intentionally centered on the `{reply} <-> {trinity} <-> {train}` workflow
 
 ## Runtime Storage
 
@@ -165,7 +161,7 @@ Do not:
 - [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
 - [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
 - [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
-- [docs/IMPACT_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/IMPACT_PRODUCT_ADAPTER_CONTRACT.md)
+- [docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md)
 - [docs/POLICY_LOOP_REPO_BREAKDOWN.md](/Users/Shared/Projects/trinity/docs/POLICY_LOOP_REPO_BREAKDOWN.md)
 
 ## License

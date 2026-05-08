@@ -9,7 +9,7 @@ This document records the current implementation state of `{trinity}`.
 Current phase:
 
 - reusable runtime core is established
-- Reply and Impact adapter integrations are implemented
+- Reply adapter integration remains the only implemented adapter
 - generic adapter seam and generic CLI surface are now implemented
 - compatibility aliases remain in place for downstream Reply integration safety
 
@@ -25,7 +25,6 @@ The repository currently has:
 - deterministic workflow core
 - adapter helper layer
 - generic `TrinityRuntime` facade
-- bounded second adapter proof through the Impact recommendation surface
 - adapter-scoped runtime storage for new installs
 - legacy Reply storage fallback for migration safety
 - generic CLI commands with `--adapter`
@@ -63,8 +62,8 @@ Verified locally in the current tranche:
 
 ## Known Constraints
 
-- the `reply` and `impact` adapters are implemented today
-- the Train handoff, shadow fixtures, and policy artifact lifecycle remain Reply-only by design
+- only the `reply` adapter is implemented today
+- the Train handoff, shadow fixtures, and policy artifact lifecycle are intentionally scoped to the Reply workflow today
 - Reply policy artifacts remain Reply-specific by design and have not yet been generalized into multiple artifact families
 - policy resolution is now company-aware, but it is still not a full company-plus-channel matrix; channel scope remains the shared fallback below company scope
 - API transport to `{train}` still assumes the Train server is already running; CLI transport avoids that dependency
@@ -77,6 +76,6 @@ Verified locally in the current tranche:
 2. harden bundle consumers in `{train}` against the richer negative-sample and resolution payloads now emitted by `{trinity}`
 3. extend company-aware policy resolution into richer scope precedence only when a second real scope dimension is justified
 4. keep the Reply adapter stable while extracting more adapter-owned code into dedicated adapter packages
-5. keep the second adapter bounded and honest while broadening generic schemas only where two adapters truly need them
+5. keep the current Reply workflow explicit and stable before attempting any second adapter
 6. preserve explicit artifact promotion, rollback, and provenance rules
 7. continue preferring deterministic replay coverage over heuristic runtime expansion

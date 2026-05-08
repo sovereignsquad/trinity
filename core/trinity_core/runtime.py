@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from trinity_core.adapters import IMPACT_ADAPTER_NAME, REPLY_ADAPTER_NAME, require_supported_adapter
-from trinity_core.impact_runtime import ImpactRuntime
+from trinity_core.adapters import REPLY_ADAPTER_NAME, require_supported_adapter
 from trinity_core.reply_runtime import ReplyRuntime
 
 
@@ -22,9 +21,6 @@ class TrinityRuntime:
         self.adapter_name = require_supported_adapter(adapter_name)
         if self.adapter_name == REPLY_ADAPTER_NAME:
             self._runtime = ReplyRuntime(store=store, policy_store=policy_store)
-            return
-        if self.adapter_name == IMPACT_ADAPTER_NAME:
-            self._runtime = ImpactRuntime(store=store)
             return
         raise AssertionError(f"Unhandled adapter: {self.adapter_name}")
 

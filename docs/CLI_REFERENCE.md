@@ -17,7 +17,16 @@ All new integrations should use the generic commands with explicit adapter selec
 - `show-config --adapter <adapter> [--include-path]`
 - `write-config --adapter <adapter> [options]`
 
-Reply-only runtime operations:
+Current implemented runtime path:
+
+- `suggest --adapter reply`
+- `record-outcome --adapter reply`
+- `export-trace --adapter reply --cycle-id <uuid>`
+- `runtime-status --adapter reply`
+- `show-config --adapter reply [--include-path]`
+- `write-config --adapter reply [options]`
+
+Reply-only extended runtime operations:
 
 - `export-training-bundle --adapter reply --cycle-id <uuid> --bundle-type <type>`
 - `train-propose-policy --adapter reply --learner-kind <kind> [--cycle-id <uuid> ... | --bundle-file <path> ...]`
@@ -68,15 +77,7 @@ PYTHONPATH=core uv run python -m trinity_core.cli policy-accept --adapter reply 
 
 ## Current Constraint
 
-Implemented adapters today:
-
-- `reply`
-- `impact`
-
-Current adapter constraint:
-
-- `impact` supports the generic runtime path: `suggest`, `record-outcome`, `export-trace`, `runtime-status`, `show-config`, and `write-config`
-- Train proposal, policy review, policy acceptance, policy promotion, training-bundle export, and shadow-fixture replay remain Reply-only
+Only the `reply` adapter is implemented today. Unsupported adapters fail fast with an explicit error.
 
 ## Holdout Default
 

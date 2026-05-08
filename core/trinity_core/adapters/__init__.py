@@ -1,7 +1,6 @@
 """Adapter descriptors and helpers for product-specific Trinity embeddings."""
 
 from .base import (
-    IMPACT_ADAPTER_NAME,
     REPLY_ADAPTER_NAME,
     SUPPORTED_ADAPTER_NAMES,
     TrinityAdapterDescriptor,
@@ -10,7 +9,6 @@ from .base import (
 )
 
 __all__ = [
-    "IMPACT_ADAPTER_NAME",
     "REPLY_ADAPTER_NAME",
     "SUPPORTED_ADAPTER_NAMES",
     "TrinityAdapterDescriptor",
