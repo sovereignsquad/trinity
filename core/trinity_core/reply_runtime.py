@@ -18,6 +18,7 @@ from trinity_core.ops.reply_policy_store import ReplyPolicyStore
 from trinity_core.schemas import (
     REPLY_CONTRACT_VERSION,
     AcceptedArtifactVersion,
+    BundleNegativeCandidate,
     CandidateDraft,
     CandidateRecord,
     CandidateState,
@@ -29,6 +30,8 @@ from trinity_core.schemas import (
     EvidenceSourceType,
     EvidenceUnit,
     GoldenExample,
+    PolicyResolutionCandidate,
+    PolicyResolutionSummary,
     RankedDraftSet,
     ReplyBehaviorPolicy,
     ReplyFeedbackDisposition,
@@ -115,7 +118,11 @@ class ReplyRuntime:
     def suggest(self, snapshot: ThreadSnapshot) -> RankedDraftSet:
         cycle_id = uuid4()
         cycle_time = snapshot.requested_at
-        active_policy_record = self.policy_store.resolve(channel=snapshot.channel)
+        resolved_policy = self.policy_store.resolve_with_summary(
+            company_id=snapshot.company_id,
+            channel=snapshot.channel,
+        )
+        active_policy_record = resolved_policy.accepted_policy
         active_policy = active_policy_record.policy if active_policy_record else None
         evidence_units = self._build_evidence(snapshot)
         pipeline = execute_candidate_pipeline(
@@ -175,6 +182,10 @@ class ReplyRuntime:
             ),
             ranked_draft_set=ranked,
             accepted_artifact_version=artifact,
+            policy_resolution=_resolved_policy_summary(
+                resolved_policy.summary,
+                artifact=artifact,
+            ),
             stage_evidence_anchors=_build_stage_evidence_anchors(evidence_units),
             model_routes=self._model_routes(),
         )
@@ -182,7 +193,7 @@ class ReplyRuntime:
         return replace(ranked, trace_ref=str(self.store.export_path(cycle_id)))
 
     def record_outcome(self, event: DraftOutcomeEvent) -> dict[str, Any]:
-        payload = self.store.load_cycle(event.cycle_id)
+        payload = self.store.load_cycle(event.cycle_id, event.company_id)
         payload.setdefault("feedback_events", []).append(dataclass_payload(event))
         candidate_id = str(event.candidate_id) if event.candidate_id else None
         if candidate_id:
@@ -704,6 +715,25 @@ def training_bundle_from_payload(
         or payload.get("labels", {}).get("cycle_id")
         or payload["ranked_draft_set"]["cycle_id"]
     )
+    policy_resolution = _policy_resolution_from_payload(payload.get("policy_resolution"))
+    stage_evidence_anchors = tuple(
+        _stage_evidence_anchor_from_payload(item)
+        for item in payload.get("stage_evidence_anchors", [])
+    )
+    surfaced_negative_candidates = tuple(
+        _bundle_negative_candidate_from_payload(item)
+        for item in payload.get(
+            "surfaced_negative_candidates",
+            _derived_surfaced_negative_candidates(payload),
+        )
+    )
+    filtered_negative_candidates = tuple(
+        _bundle_negative_candidate_from_payload(item)
+        for item in payload.get(
+            "filtered_negative_candidates",
+            _derived_filtered_negative_candidates(payload),
+        )
+    )
     return TrainingBundle(
         bundle_id=TrainingBundle.build_bundle_id(cycle_id=cycle_id, bundle_type=bundle_type),
         bundle_type=bundle_type,
@@ -719,10 +749,19 @@ def training_bundle_from_payload(
         if payload.get("selected_candidate_id")
         else outcome_event.candidate_id,
         draft_outcome_event=outcome_event,
+        stage_evidence_anchors=stage_evidence_anchors,
+        model_routes={
+            str(key): str(value)
+            for key, value in payload.get("model_routes", {}).items()
+        },
+        policy_resolution=policy_resolution,
+        surfaced_negative_candidates=surfaced_negative_candidates,
+        filtered_negative_candidates=filtered_negative_candidates,
         labels={
             **{str(key): str(value) for key, value in payload.get("labels", {}).items()},
             "bundle_type": bundle_type.value,
             "cycle_id": str(cycle_id),
+            "company_id": str(payload["thread_snapshot"]["company_id"]),
             "trace_ref": str(payload["ranked_draft_set"].get("trace_ref") or ""),
             "channel": ranked_draft_set.channel,
         },
@@ -749,6 +788,60 @@ def _bundle_outcome_event(payload: dict[str, Any]) -> DraftOutcomeEvent:
             str(event.candidate_id or ""),
         ),
     )[-1]
+
+
+def _derived_surfaced_negative_candidates(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    selected_candidate_id = str(payload.get("selected_candidate_id") or "")
+    if not selected_candidate_id and payload.get("draft_outcome_event"):
+        selected_candidate_id = str(payload["draft_outcome_event"].get("candidate_id") or "")
+    if not selected_candidate_id and payload.get("feedback_events"):
+        try:
+            selected_candidate_id = str(_bundle_outcome_event(payload).candidate_id or "")
+        except ValueError:
+            selected_candidate_id = ""
+    negatives = []
+    for item in payload.get("ranked_draft_set", {}).get("drafts", []):
+        if str(item.get("candidate_id")) == selected_candidate_id:
+            continue
+        negatives.append(
+            {
+                "candidate_id": item["candidate_id"],
+                "candidate_kind": str(item.get("candidate_type") or CandidateType.ACTION.value),
+                "state": "SURFACED_NOT_SELECTED",
+                "rank": item.get("rank"),
+                "content": item["draft_text"],
+                "rationale": item["rationale"],
+                "source_evidence_ids": item.get("source_evidence_ids", []),
+                "source_candidate_ids": [],
+                "delivery_eligible": bool(item.get("delivery_eligible", False)),
+            }
+        )
+    return negatives
+
+
+def _derived_filtered_negative_candidates(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    surfaced_ids = {
+        str(item["candidate_id"])
+        for item in payload.get("ranked_draft_set", {}).get("drafts", [])
+    }
+    negatives = []
+    for item in payload.get("candidates", []):
+        if str(item.get("candidate_id")) in surfaced_ids:
+            continue
+        negatives.append(
+            {
+                "candidate_id": item["candidate_id"],
+                "candidate_kind": item["candidate_type"],
+                "state": item["state"],
+                "rank": None,
+                "content": item["content"],
+                "rationale": item.get("evaluation_reason") or item["title"],
+                "source_evidence_ids": item.get("lineage", {}).get("source_evidence_ids", []),
+                "source_candidate_ids": item.get("lineage", {}).get("source_candidate_ids", []),
+                "delivery_eligible": str(item.get("state")) == CandidateState.EVALUATED.value,
+            }
+        )
+    return negatives
 
 
 def _ranked_draft_set_from_payload(payload: dict[str, Any]) -> RankedDraftSet:
@@ -796,6 +889,55 @@ def _artifact_version_from_payload(payload: dict[str, Any]) -> AcceptedArtifactV
     )
 
 
+def _policy_resolution_from_payload(
+    payload: dict[str, Any] | None,
+) -> PolicyResolutionSummary | None:
+    if payload is None:
+        return None
+    return PolicyResolutionSummary(
+        requested_company_id=payload.get("requested_company_id"),
+        requested_channel=payload.get("requested_channel"),
+        matched_scope_kind=payload.get("matched_scope_kind"),
+        matched_scope_value=payload.get("matched_scope_value"),
+        matched_policy_version=payload.get("matched_policy_version"),
+        resolution_path=tuple(str(item) for item in payload.get("resolution_path", [])),
+        considered_scopes=tuple(
+            PolicyResolutionCandidate(
+                scope_kind=str(item["scope_kind"]),
+                scope_value=item.get("scope_value"),
+                matched=bool(item["matched"]),
+                policy_version=item.get("policy_version"),
+            )
+            for item in payload.get("considered_scopes", [])
+        ),
+    )
+
+
+def _stage_evidence_anchor_from_payload(payload: dict[str, Any]) -> StageEvidenceAnchor:
+    return StageEvidenceAnchor(
+        stage_name=str(payload["stage_name"]),
+        anchor_kind=str(payload["anchor_kind"]),
+        evidence_ids=tuple(UUID(item) for item in payload["evidence_ids"]),
+        content_hashes=tuple(str(item) for item in payload["content_hashes"]),
+    )
+
+
+def _bundle_negative_candidate_from_payload(payload: dict[str, Any]) -> BundleNegativeCandidate:
+    return BundleNegativeCandidate(
+        candidate_id=UUID(payload["candidate_id"]),
+        candidate_kind=str(payload["candidate_kind"]),
+        state=str(payload["state"]),
+        rank=int(payload["rank"]) if payload.get("rank") is not None else None,
+        content=str(payload["content"]),
+        rationale=str(payload["rationale"]),
+        source_evidence_ids=tuple(UUID(item) for item in payload.get("source_evidence_ids", [])),
+        source_candidate_ids=tuple(
+            UUID(item) for item in payload.get("source_candidate_ids", [])
+        ),
+        delivery_eligible=bool(payload.get("delivery_eligible", False)),
+    )
+
+
 def _resolved_artifact_version(
     cycle_time: datetime,
     *,
@@ -808,6 +950,24 @@ def _resolved_artifact_version(
         version=ARTIFACT_VERSION,
         source_project=ARTIFACT_SOURCE_PROJECT,
         accepted_at=cycle_time,
+    )
+
+
+def _resolved_policy_summary(
+    summary: PolicyResolutionSummary,
+    *,
+    artifact: AcceptedArtifactVersion,
+) -> PolicyResolutionSummary:
+    if summary.matched_policy_version is not None:
+        return summary
+    return PolicyResolutionSummary(
+        requested_company_id=summary.requested_company_id,
+        requested_channel=summary.requested_channel,
+        matched_scope_kind="builtin_runtime_default",
+        matched_scope_value=None,
+        matched_policy_version=artifact.version,
+        resolution_path=tuple(summary.resolution_path) + ("builtin_runtime_default:match",),
+        considered_scopes=summary.considered_scopes,
     )
 
 

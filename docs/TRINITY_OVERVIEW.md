@@ -40,6 +40,7 @@ The repository now distinguishes:
 Current adapter support:
 
 - `reply`
+- `impact`
 
 Current compatibility posture:
 
@@ -60,10 +61,16 @@ Adapter-facing Reply contracts live in:
 - [core/trinity_core/schemas/integration.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/integration.py)
 - [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
 
+Adapter-facing Impact contracts live in:
+
+- [core/trinity_core/schemas/impact_integration.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/impact_integration.py)
+- [docs/IMPACT_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/IMPACT_PRODUCT_ADAPTER_CONTRACT.md)
+
 ## Core Code Paths
 
 - generic runtime facade: [core/trinity_core/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/runtime.py)
 - Reply runtime implementation: [core/trinity_core/reply_runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/reply_runtime.py)
+- Impact runtime implementation: [core/trinity_core/impact_runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/impact_runtime.py)
 - adapter helpers: [core/trinity_core/adapters](/Users/Shared/Projects/trinity/core/trinity_core/adapters)
 - CLI: [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
 - storage helpers: [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
@@ -78,9 +85,10 @@ What is done:
 - generic CLI exists
 - adapter-scoped storage exists
 - Reply compatibility is preserved
+- Impact now proves the second adapter path through the same generic runtime surface
 
 What remains:
 
-- add a second real adapter
 - move more Reply-owned policy and mapping logic into deeper adapter packages
 - generalize shared abstractions only where two adapters require them
+- keep the Reply policy/train lane explicit until another adapter actually needs a shared promotion contract

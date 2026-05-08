@@ -104,3 +104,62 @@ def test_resolve_falls_back_to_global_scope(tmp_path: Path) -> None:
     assert resolved is not None
     assert resolved.policy.scope_kind is ReplyBehaviorScopeKind.GLOBAL
     assert resolved.artifact.version == "global-v1"
+
+
+def test_resolve_prefers_company_scope_over_channel_and_global(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    company_id = "11111111-1111-5111-8111-111111111111"
+    store.accept(
+        _policy(scope_kind=ReplyBehaviorScopeKind.GLOBAL, scope_value=None, version="global-v1"),
+        artifact=_artifact("global-v1"),
+    )
+    store.accept(
+        _policy(
+            scope_kind=ReplyBehaviorScopeKind.CHANNEL,
+            scope_value="email",
+            version="channel-v1",
+        ),
+        artifact=_artifact("channel-v1"),
+    )
+    store.accept(
+        _policy(
+            scope_kind=ReplyBehaviorScopeKind.COMPANY,
+            scope_value=company_id,
+            version="company-v1",
+        ),
+        artifact=_artifact("company-v1"),
+    )
+
+    resolved = store.resolve(company_id=company_id, channel="email")
+
+    assert resolved is not None
+    assert resolved.policy.scope_kind is ReplyBehaviorScopeKind.COMPANY
+    assert resolved.policy.version == "company-v1"
+
+
+def test_resolve_with_summary_explains_scope_path(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    company_id = "11111111-1111-5111-8111-111111111111"
+    store.accept(
+        _policy(scope_kind=ReplyBehaviorScopeKind.GLOBAL, scope_value=None, version="global-v1"),
+        artifact=_artifact("global-v1"),
+    )
+    store.accept(
+        _policy(
+            scope_kind=ReplyBehaviorScopeKind.CHANNEL,
+            scope_value="email",
+            version="channel-v1",
+        ),
+        artifact=_artifact("channel-v1"),
+    )
+
+    resolved = store.resolve_with_summary(company_id=company_id, channel="email")
+
+    assert resolved.accepted_policy is not None
+    assert resolved.accepted_policy.policy.version == "channel-v1"
+    assert resolved.summary.matched_scope_kind == "channel"
+    assert resolved.summary.matched_policy_version == "channel-v1"
+    assert resolved.summary.resolution_path == (
+        f"company:{company_id}:miss",
+        "channel:email:match",
+    )

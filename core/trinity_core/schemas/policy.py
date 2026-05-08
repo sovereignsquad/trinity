@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from .integration import REPLY_CONTRACT_VERSION
 
@@ -32,6 +33,7 @@ class ReplyBehaviorScopeKind(StrEnum):
     """Allowed initial scopes for reply behavior policy artifacts."""
 
     GLOBAL = "global"
+    COMPANY = "company"
     CHANNEL = "channel"
 
 
@@ -123,20 +125,56 @@ class ReplyBehaviorPolicy:
         notes = _normalize_optional_text(self.notes)
         if self.scope_kind is ReplyBehaviorScopeKind.GLOBAL and scope_value is not None:
             raise ValueError("scope_value must be omitted for global policies.")
-        if self.scope_kind is ReplyBehaviorScopeKind.CHANNEL and scope_value is None:
-            raise ValueError("scope_value is required for channel policies.")
+        if (
+            self.scope_kind in {ReplyBehaviorScopeKind.COMPANY, ReplyBehaviorScopeKind.CHANNEL}
+            and scope_value is None
+        ):
+            raise ValueError("scope_value is required for company and channel policies.")
         if scope_value is not None:
             scope_value = scope_value.lower()
         object.__setattr__(self, "scope_value", scope_value)
         object.__setattr__(self, "notes", notes)
 
     def matches_channel(self, channel: str) -> bool:
-        normalized_channel = channel.strip().lower()
-        if not normalized_channel:
-            raise ValueError("channel is required.")
+        return self.matches_scope(channel=channel)
+
+    def matches_scope(
+        self,
+        *,
+        company_id: UUID | str | None = None,
+        channel: str | None = None,
+    ) -> bool:
+        normalized_company_id = _normalize_company_id(company_id)
+        normalized_channel = _normalize_channel(channel)
         if self.scope_kind is ReplyBehaviorScopeKind.GLOBAL:
             return True
+        if self.scope_kind is ReplyBehaviorScopeKind.COMPANY:
+            if normalized_company_id is None:
+                raise ValueError("company_id is required for company-scoped policies.")
+            return self.scope_value == normalized_company_id
+        if normalized_channel is None:
+            raise ValueError("channel is required.")
         return self.scope_value == normalized_channel
+
+    def matches_company(self, company_id: UUID | str) -> bool:
+        if self.scope_kind is ReplyBehaviorScopeKind.GLOBAL:
+            return True
+        if self.scope_kind is not ReplyBehaviorScopeKind.COMPANY:
+            return False
+        return self.scope_value == _normalize_company_id(company_id)
+
+
+def _normalize_company_id(company_id: UUID | str | None) -> str | None:
+    if company_id is None:
+        return None
+    return str(company_id).strip().lower() or None
+
+
+def _normalize_channel(channel: str | None) -> str | None:
+    if channel is None:
+        return None
+    normalized_channel = channel.strip().lower()
+    return normalized_channel or None
 
 
 def reply_behavior_policy_from_payload(payload: Mapping[str, Any]) -> ReplyBehaviorPolicy:
@@ -182,14 +220,15 @@ def reply_behavior_policy_from_payload(payload: Mapping[str, Any]) -> ReplyBehav
 def select_reply_behavior_policy(
     policies: Sequence[ReplyBehaviorPolicy],
     *,
-    channel: str,
+    channel: str | None = None,
+    company_id: UUID | str | None = None,
 ) -> ReplyBehaviorPolicy | None:
-    """Select the most specific applicable policy for one channel."""
+    """Select the most specific applicable policy for one runtime scope."""
 
     matching = [
         policy
         for policy in policies
-        if policy.matches_channel(channel)
+        if policy.matches_scope(company_id=company_id, channel=channel)
     ]
     if not matching:
         return None
@@ -205,9 +244,11 @@ def select_reply_behavior_policy(
 
 
 def _scope_precedence(policy: ReplyBehaviorPolicy) -> int:
-    if policy.scope_kind is ReplyBehaviorScopeKind.CHANNEL:
+    if policy.scope_kind is ReplyBehaviorScopeKind.COMPANY:
         return 0
-    return 1
+    if policy.scope_kind is ReplyBehaviorScopeKind.CHANNEL:
+        return 1
+    return 2
 
 
 def _parse_datetime(value: str) -> datetime:

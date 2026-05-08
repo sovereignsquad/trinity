@@ -7,12 +7,15 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from trinity_core.adapters import REPLY_ADAPTER_NAME, normalize_adapter_name
-from trinity_core.ops.cycle_store import dataclass_payload
+from trinity_core.ops.cycle_store import dataclass_payload, write_json_atomic
 from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 from trinity_core.schemas import (
     AcceptedArtifactVersion,
+    PolicyResolutionCandidate,
+    PolicyResolutionSummary,
     ReplyBehaviorPolicy,
     ReplyBehaviorScopeKind,
 )
@@ -34,6 +37,14 @@ class AcceptedReplyBehaviorPolicy:
 
     artifact: AcceptedArtifactVersion
     policy: ReplyBehaviorPolicy
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedReplyPolicy:
+    """Accepted policy plus explanation of how scope resolution selected it."""
+
+    accepted_policy: AcceptedReplyBehaviorPolicy | None
+    summary: PolicyResolutionSummary
 
 
 def resolve_reply_policy_store_paths(
@@ -86,16 +97,106 @@ class ReplyPolicyStore:
         self._write_json(self.current_path(policy.scope_kind, policy.scope_value), payload)
         return version_path
 
-    def resolve(self, *, channel: str) -> AcceptedReplyBehaviorPolicy | None:
-        normalized_channel = str(channel or "").strip().lower()
+    def resolve(
+        self,
+        *,
+        company_id: UUID | str | None = None,
+        channel: str | None = None,
+    ) -> AcceptedReplyBehaviorPolicy | None:
+        return self.resolve_with_summary(company_id=company_id, channel=channel).accepted_policy
+
+    def resolve_with_summary(
+        self,
+        *,
+        company_id: UUID | str | None = None,
+        channel: str | None = None,
+    ) -> ResolvedReplyPolicy:
+        normalized_company_id = _normalize_scope_value(company_id)
+        normalized_channel = _normalize_scope_value(channel)
+        considered: list[PolicyResolutionCandidate] = []
+        resolution_path: list[str] = []
+        if normalized_company_id:
+            company_policy = self.current_for_scope(
+                ReplyBehaviorScopeKind.COMPANY,
+                normalized_company_id,
+            )
+            considered.append(
+                PolicyResolutionCandidate(
+                    scope_kind=ReplyBehaviorScopeKind.COMPANY.value,
+                    scope_value=normalized_company_id,
+                    matched=company_policy is not None,
+                    policy_version=company_policy.policy.version if company_policy else None,
+                )
+            )
+            resolution_path.append(
+                f"company:{normalized_company_id}:{'match' if company_policy else 'miss'}"
+            )
+            if company_policy is not None:
+                return ResolvedReplyPolicy(
+                    accepted_policy=company_policy,
+                    summary=PolicyResolutionSummary(
+                        requested_company_id=normalized_company_id,
+                        requested_channel=normalized_channel,
+                        matched_scope_kind=ReplyBehaviorScopeKind.COMPANY.value,
+                        matched_scope_value=normalized_company_id,
+                        matched_policy_version=company_policy.policy.version,
+                        resolution_path=tuple(resolution_path),
+                        considered_scopes=tuple(considered),
+                    ),
+                )
         if normalized_channel:
             channel_policy = self.current_for_scope(
                 ReplyBehaviorScopeKind.CHANNEL,
                 normalized_channel,
             )
+            considered.append(
+                PolicyResolutionCandidate(
+                    scope_kind=ReplyBehaviorScopeKind.CHANNEL.value,
+                    scope_value=normalized_channel,
+                    matched=channel_policy is not None,
+                    policy_version=channel_policy.policy.version if channel_policy else None,
+                )
+            )
+            resolution_path.append(
+                f"channel:{normalized_channel}:{'match' if channel_policy else 'miss'}"
+            )
             if channel_policy is not None:
-                return channel_policy
-        return self.current_for_scope(ReplyBehaviorScopeKind.GLOBAL, None)
+                return ResolvedReplyPolicy(
+                    accepted_policy=channel_policy,
+                    summary=PolicyResolutionSummary(
+                        requested_company_id=normalized_company_id,
+                        requested_channel=normalized_channel,
+                        matched_scope_kind=ReplyBehaviorScopeKind.CHANNEL.value,
+                        matched_scope_value=normalized_channel,
+                        matched_policy_version=channel_policy.policy.version,
+                        resolution_path=tuple(resolution_path),
+                        considered_scopes=tuple(considered),
+                    ),
+                )
+        global_policy = self.current_for_scope(ReplyBehaviorScopeKind.GLOBAL, None)
+        considered.append(
+            PolicyResolutionCandidate(
+                scope_kind=ReplyBehaviorScopeKind.GLOBAL.value,
+                scope_value=None,
+                matched=global_policy is not None,
+                policy_version=global_policy.policy.version if global_policy else None,
+            )
+        )
+        resolution_path.append(f"global:{'match' if global_policy else 'miss'}")
+        return ResolvedReplyPolicy(
+            accepted_policy=global_policy,
+            summary=PolicyResolutionSummary(
+                requested_company_id=normalized_company_id,
+                requested_channel=normalized_channel,
+                matched_scope_kind=(
+                    ReplyBehaviorScopeKind.GLOBAL.value if global_policy is not None else None
+                ),
+                matched_scope_value=None,
+                matched_policy_version=global_policy.policy.version if global_policy else None,
+                resolution_path=tuple(resolution_path),
+                considered_scopes=tuple(considered),
+            ),
+        )
 
     def load_current_policies(self) -> list[AcceptedReplyBehaviorPolicy]:
         current: list[AcceptedReplyBehaviorPolicy] = []
@@ -141,14 +242,17 @@ class ReplyPolicyStore:
         return self.scope_dir(scope_kind, scope_value) / "current.json"
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        return path
+        return write_json_atomic(path, payload)
 
 
 def _scope_key(scope_kind: ReplyBehaviorScopeKind, scope_value: str | None) -> str:
     if scope_kind is ReplyBehaviorScopeKind.GLOBAL:
         return "global"
+    if scope_kind is ReplyBehaviorScopeKind.COMPANY:
+        normalized_scope = _normalize_scope_value(scope_value)
+        if not normalized_scope:
+            raise ValueError("Company scope requires scope_value.")
+        return f"company__{_safe_path_component(normalized_scope)}"
     normalized_scope = str(scope_value or "").strip().lower()
     if not normalized_scope:
         raise ValueError("Channel scope requires scope_value.")
@@ -185,3 +289,8 @@ def _parse_datetime(value: str):
 
 def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _normalize_scope_value(value: UUID | str | None) -> str | None:
+    normalized = str(value or "").strip().lower()
+    return normalized or None

@@ -28,7 +28,7 @@ Deliver a reusable runtime with explicit product adapters while keeping current 
 
 ### M4. Multi-Project Proof
 
-- [ ] Add a second real product adapter.
+- [x] Add a second real product adapter.
 - [ ] Move Reply-owned mapping and policy behavior deeper into dedicated adapter modules.
 - [ ] Generalize policy envelopes where two adapters demonstrably need shared behavior.
 
@@ -68,14 +68,16 @@ Deliver a reusable runtime with explicit product adapters while keeping current 
 
 ### Open
 
-- `TRINITY-ADAPTER-002` No second adapter proving the abstraction
-  The runtime now has an adapter seam, but the abstraction is not yet proven by a second real product integration.
-
 - `TRINITY-ADAPTER-003` Reply policy artifacts remain adapter-specific
   This is acceptable today, but future shared policy abstractions should be introduced only when a second adapter demonstrates overlap.
+
+### Newly Closed
+
+- `TRINITY-ADAPTER-002` No second adapter proving the abstraction
+  Fixed by adding the bounded Impact adapter with explicit contracts, runtime dispatch, generic CLI support, and deterministic tests for the non-Reply adapter path.
 
 ## Dependencies
 
 - depends on `{reply}` to keep the existing production adapter contract stable
-- depends on a second downstream project to validate the new adapter architecture
+- depends on `{impact}` to keep the second adapter path honest and bounded
 - continues feeding `{train}` with bounded runtime artifacts while retaining runtime ownership

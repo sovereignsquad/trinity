@@ -26,6 +26,7 @@ Implemented today:
 Implemented adapter support:
 
 - `reply`
+- `impact`
 
 Compatibility guarantee:
 
@@ -60,9 +61,14 @@ Primary responsibility split:
 Preferred generic commands:
 
 - `suggest --adapter reply`
+- `suggest --adapter impact`
 - `record-outcome --adapter reply`
+- `record-outcome --adapter impact`
 - `export-trace --adapter reply`
+- `export-trace --adapter impact`
 - `export-training-bundle --adapter reply`
+- `train-propose-policy --adapter reply`
+- `policy-review-surface --adapter reply`
 - `run-shadow-fixtures --adapter reply`
 - `policy-accept --adapter reply`
 - `policy-promote --adapter reply`
@@ -78,6 +84,8 @@ Compatibility aliases:
 - `reply-record-outcome`
 - `reply-export-trace`
 - `reply-export-training-bundle`
+- `reply-train-propose-policy`
+- `reply-policy-review-surface`
 - `reply-run-shadow-fixtures`
 - `reply-policy-accept`
 - `reply-policy-promote`
@@ -94,6 +102,13 @@ cd /Users/Shared/Projects/trinity
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
 PYTHONPATH=core uv run python -m trinity_core.cli run-shadow-fixtures --adapter reply
 ```
+
+Policy acceptance note:
+
+- serious policy review and acceptance flows now default to holdout replay
+- no-holdout acceptance is restricted to explicit local/dev override with `--allow-no-holdout`
+- exported training bundles now preserve negative samples and policy-resolution context so `{train}` can learn from bounded runtime artifacts without silently reinterpreting the whole trace
+- the policy, Train handoff, and shadow-fixture lanes are currently Reply-only even though the runtime now supports both `reply` and `impact`
 
 ## Runtime Storage
 
@@ -150,6 +165,7 @@ Do not:
 - [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
 - [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
 - [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
+- [docs/IMPACT_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/IMPACT_PRODUCT_ADAPTER_CONTRACT.md)
 - [docs/POLICY_LOOP_REPO_BREAKDOWN.md](/Users/Shared/Projects/trinity/docs/POLICY_LOOP_REPO_BREAKDOWN.md)
 
 ## License

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from trinity_core.adapters import REPLY_ADAPTER_NAME, normalize_adapter_name
-from trinity_core.ops.cycle_store import dataclass_payload
+from trinity_core.ops.cycle_store import dataclass_payload, write_json_atomic
 from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 from trinity_core.schemas import AcceptedArtifactVersion
 
@@ -32,12 +32,60 @@ class AcceptedArtifactTransitionRecord:
     promoted_at: datetime
     previous_version: str | None = None
     reason: str | None = None
+    contract_version: str | None = None
+    scope_kind: str | None = None
+    scope_value: str | None = None
+    source_train_project_key: str | None = None
+    source_train_run_id: str | None = None
+    source_review_decision_id: str | None = None
+    acceptance_mode: str | None = None
+    holdout_bundle_count: int = 0
+    skeptical_notes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.action not in {"PROMOTE", "ROLLBACK"}:
             raise ValueError("action must be PROMOTE or ROLLBACK.")
         if self.promoted_at.tzinfo is None:
             raise ValueError("promoted_at must be timezone-aware.")
+
+
+@dataclass(frozen=True, slots=True)
+class ReplyPolicyReviewArtifact:
+    """Persisted review decision with lineage into later promotion."""
+
+    review_decision_id: str
+    reviewed_at: datetime
+    artifact_key: str
+    candidate_version: str
+    scope_kind: str
+    scope_value: str | None
+    ready_for_acceptance: bool
+    acceptance_mode: str
+    proposal_bundle_count: int
+    holdout_bundle_count: int
+    candidate_score: float
+    incumbent_score: float | None
+    regression_delta: float | None
+    holdout_candidate_score: float | None = None
+    holdout_incumbent_score: float | None = None
+    holdout_regression_delta: float | None = None
+    incumbent_policy_version: str | None = None
+    source_train_project_key: str | None = None
+    source_train_run_id: str | None = None
+    review_reason: str | None = None
+    skeptical_notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.review_decision_id.strip():
+            raise ValueError("review_decision_id is required.")
+        if self.reviewed_at.tzinfo is None:
+            raise ValueError("reviewed_at must be timezone-aware.")
+        if not self.artifact_key.strip():
+            raise ValueError("artifact_key is required.")
+        if not self.candidate_version.strip():
+            raise ValueError("candidate_version is required.")
+        if not self.scope_kind.strip():
+            raise ValueError("scope_kind is required.")
 
 
 def resolve_accepted_artifact_registry_paths(
@@ -75,6 +123,15 @@ class AcceptedArtifactRegistry:
         *,
         reason: str | None = None,
         promoted_at: datetime | None = None,
+        contract_version: str | None = None,
+        scope_kind: str | None = None,
+        scope_value: str | None = None,
+        source_train_project_key: str | None = None,
+        source_train_run_id: str | None = None,
+        source_review_decision_id: str | None = None,
+        acceptance_mode: str | None = None,
+        holdout_bundle_count: int = 0,
+        skeptical_notes: tuple[str, ...] = (),
     ) -> AcceptedArtifactTransitionRecord:
         action_time = promoted_at or artifact.accepted_at
         if action_time.tzinfo is None:
@@ -93,6 +150,15 @@ class AcceptedArtifactRegistry:
             promoted_at=action_time,
             previous_version=previous.version if previous else None,
             reason=reason,
+            contract_version=contract_version,
+            scope_kind=scope_kind,
+            scope_value=scope_value,
+            source_train_project_key=source_train_project_key,
+            source_train_run_id=source_train_run_id,
+            source_review_decision_id=source_review_decision_id,
+            acceptance_mode=acceptance_mode,
+            holdout_bundle_count=int(holdout_bundle_count),
+            skeptical_notes=tuple(str(note) for note in skeptical_notes if str(note).strip()),
         )
         self._write_transition(transition)
         self._write_current_pointer(transition)
@@ -170,11 +236,23 @@ class AcceptedArtifactRegistry:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    def reviews_dir(self, artifact_key: str) -> Path:
+        path = self.artifact_dir(artifact_key) / "reviews"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
     def version_path(self, artifact_key: str, version: str) -> Path:
         return self.versions_dir(artifact_key) / f"{_safe_path_component(version)}.json"
 
     def current_path(self, artifact_key: str) -> Path:
         return self.artifact_dir(artifact_key) / "current.json"
+
+    def record_review(self, review: ReplyPolicyReviewArtifact) -> Path:
+        path = self.reviews_dir(review.artifact_key) / (
+            f"{_safe_path_component(review.review_decision_id)}.json"
+        )
+        self._write_json(path, dataclass_payload(review))
+        return path
 
     def _write_transition(self, transition: AcceptedArtifactTransitionRecord) -> Path:
         timestamp = transition.promoted_at.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -192,15 +270,22 @@ class AcceptedArtifactRegistry:
             "promoted_at": transition.promoted_at,
             "previous_version": transition.previous_version,
             "reason": transition.reason,
+            "contract_version": transition.contract_version,
+            "scope_kind": transition.scope_kind,
+            "scope_value": transition.scope_value,
+            "source_train_project_key": transition.source_train_project_key,
+            "source_train_run_id": transition.source_train_run_id,
+            "source_review_decision_id": transition.source_review_decision_id,
+            "acceptance_mode": transition.acceptance_mode,
+            "holdout_bundle_count": transition.holdout_bundle_count,
+            "skeptical_notes": transition.skeptical_notes,
         }
         path = self.current_path(transition.artifact.artifact_key)
         self._write_json(path, dataclass_payload(payload))
         return path
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_json_dumps(payload), encoding="utf-8")
-        return path
+        return write_json_atomic(path, payload)
 
 
 def _safe_path_component(value: str) -> str:
@@ -226,6 +311,15 @@ def _transition_from_payload(payload: dict[str, Any]) -> AcceptedArtifactTransit
         promoted_at=_parse_datetime(str(payload["promoted_at"])),
         previous_version=payload.get("previous_version"),
         reason=payload.get("reason"),
+        contract_version=payload.get("contract_version"),
+        scope_kind=payload.get("scope_kind"),
+        scope_value=payload.get("scope_value"),
+        source_train_project_key=payload.get("source_train_project_key"),
+        source_train_run_id=payload.get("source_train_run_id"),
+        source_review_decision_id=payload.get("source_review_decision_id"),
+        acceptance_mode=payload.get("acceptance_mode"),
+        holdout_bundle_count=int(payload.get("holdout_bundle_count", 0)),
+        skeptical_notes=tuple(str(item) for item in payload.get("skeptical_notes", ())),
     )
 
 
@@ -234,12 +328,6 @@ def _parse_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("Registry timestamps must be timezone-aware.")
     return parsed
-
-
-def _json_dumps(payload: dict[str, Any]) -> str:
-    import json
-
-    return json.dumps(payload, indent=2, sort_keys=True)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

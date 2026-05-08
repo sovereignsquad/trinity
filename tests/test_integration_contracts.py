@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from trinity_core.model_config import TrinityReplyModelConfig, TrinityRoleRoute
@@ -172,6 +172,8 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
     assert len(ranked.drafts) == 3
     assert runtime.store.cycle_path(ranked.cycle_id).exists()
     assert runtime.store.export_path(ranked.cycle_id).exists()
+    assert runtime.store.cycle_path(ranked.cycle_id, snapshot.company_id).exists()
+    assert runtime.store.export_path(ranked.cycle_id, snapshot.company_id).exists()
 
     outcome = DraftOutcomeEvent(
         company_id=snapshot.company_id,
@@ -195,6 +197,8 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
     assert payload["feedback_events"][0]["disposition"] == DraftOutcomeDisposition.SENT_AS_IS.value
     assert payload["frontier_candidate_ids"]
     assert payload["accepted_artifact_version"]["artifact_key"] == "reply_ranker_policy"
+    assert payload["policy_resolution"]["matched_policy_version"] == "reply_ranker_policy.v0"
+    assert payload["policy_resolution"]["matched_scope_kind"] == "builtin_runtime_default"
     assert [anchor["stage_name"] for anchor in payload["stage_evidence_anchors"]] == [
         "generator",
         "refiner",
@@ -307,6 +311,13 @@ def test_reply_runtime_exports_training_bundle_from_terminal_outcome(tmp_path: P
     assert exported["bundle"]["ranked_draft_set"]["accepted_artifact_version"]["artifact_key"] == (
         "reply_ranker_policy"
     )
+    assert exported["bundle"]["stage_evidence_anchors"]
+    assert (
+        exported["bundle"]["policy_resolution"]["matched_policy_version"]
+        == "reply_ranker_policy.v0"
+    )
+    assert len(exported["bundle"]["surfaced_negative_candidates"]) == 2
+    assert "filtered_negative_candidates" in exported["bundle"]
     assert Path(exported["bundle_path"]).exists()
 
 
@@ -393,6 +404,109 @@ def test_reply_runtime_applies_accepted_channel_policy_and_provenance(tmp_path: 
     assert ranked.accepted_artifact_version.artifact_key == "reply_behavior_policy"
     assert ranked.accepted_artifact_version.version == "email.v2"
     assert all(not draft.draft_text.lower().startswith("thanks") for draft in ranked.drafts)
+
+
+def test_reply_runtime_isolates_company_scoped_policies_and_storage(tmp_path: Path) -> None:
+    cycle_store = RuntimeCycleStore(
+        RuntimeCyclePaths(
+            adapter_name="reply",
+            root_dir=tmp_path / "runtime",
+            cycles_dir=tmp_path / "runtime" / "cycles",
+            exports_dir=tmp_path / "runtime" / "exports",
+            companies_dir=tmp_path / "runtime" / "companies",
+        )
+    )
+    policy_store = ReplyPolicyStore(
+        ReplyPolicyStorePaths(
+            adapter_name="reply",
+            root_dir=tmp_path / "accepted_reply_policies",
+            scopes_dir=tmp_path / "accepted_reply_policies" / "scopes",
+        )
+    )
+    company_one = UUID("11111111-1111-5111-8111-111111111111")
+    company_two = UUID("22222222-2222-5222-8222-222222222222")
+    for company_id, version, target_tone in (
+        (company_one, "company-one.v1", "precise"),
+        (company_two, "company-two.v1", "warm"),
+    ):
+        policy_store.accept(
+            ReplyBehaviorPolicy(
+                artifact_key="reply_behavior_policy",
+                version=version,
+                scope_kind=ReplyBehaviorScopeKind.COMPANY,
+                scope_value=str(company_id),
+                created_at=datetime(2026, 5, 4, 11, 0, tzinfo=UTC),
+                source_project="train",
+                tone_preferences=ReplyTonePreferences(
+                    target_tone=target_tone,
+                    formality="medium",
+                    warmth="warm",
+                    directness="direct",
+                ),
+                brevity_preferences=ReplyBrevityPreferences(
+                    target_length="compact",
+                    max_sentences=2,
+                    max_chars=140,
+                    prefer_single_paragraph=True,
+                ),
+                channel_rules=ReplyChannelRules(
+                    opening_style="no_opening",
+                    closing_style="no_signoff",
+                    emoji_policy="none",
+                    url_policy="plain_urls",
+                    attachment_reference_policy="mention_if_used",
+                    newline_policy="single_paragraph",
+                ),
+            ),
+            artifact=AcceptedArtifactVersion(
+                artifact_key="reply_behavior_policy",
+                version=version,
+                source_project="train",
+                accepted_at=datetime(2026, 5, 4, 12, 0, tzinfo=UTC),
+            ),
+        )
+    runtime = ReplyRuntime(store=cycle_store, policy_store=policy_store)
+    common_kwargs = dict(
+        channel="email",
+        latest_inbound_text="Can you send the updated numbers today?",
+        requested_at=datetime(2026, 5, 4, 12, 0, tzinfo=UTC),
+        messages=(
+            ThreadMessageSnapshot(
+                message_id="msg-1",
+                role=ThreadMessageRole.CONTACT,
+                text="Can you send the updated numbers today?",
+                occurred_at=datetime(2026, 5, 4, 11, 59, tzinfo=UTC),
+                channel="email",
+                source="email",
+                handle="alice@example.com",
+            ),
+        ),
+    )
+    snapshot_one = ThreadSnapshot(
+        company_id=company_one,
+        thread_ref="reply:email:company-one:alice@example.com",
+        contact_handle="alice@example.com",
+        **common_kwargs,
+    )
+    snapshot_two = ThreadSnapshot(
+        company_id=company_two,
+        thread_ref="reply:email:company-two:alice@example.com",
+        contact_handle="alice@example.com",
+        **common_kwargs,
+    )
+
+    ranked_one = runtime.suggest(snapshot_one)
+    ranked_two = runtime.suggest(snapshot_two)
+
+    assert ranked_one.accepted_artifact_version.version == "company-one.v1"
+    assert ranked_two.accepted_artifact_version.version == "company-two.v1"
+    assert runtime.store.cycle_path(ranked_one.cycle_id, company_one).exists()
+    assert runtime.store.cycle_path(ranked_two.cycle_id, company_two).exists()
+    assert company_one != company_two
+    assert (
+        runtime.store.cycle_path(ranked_one.cycle_id, company_one)
+        != runtime.store.cycle_path(ranked_two.cycle_id, company_two)
+    )
 
 
 def test_reply_runtime_backfills_three_distinct_drafts_when_llm_duplicates(tmp_path: Path) -> None:

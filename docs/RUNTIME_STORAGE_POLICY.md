@@ -55,6 +55,11 @@ Preferred adapter-scoped runtime layout for new installs:
   trinity_runtime/
     adapters/
       <adapter>/
+        companies/
+          <company_id>/
+            cycles/
+            exports/
+            training_bundles/
         cycles/
         exports/
         training_bundles/
@@ -62,6 +67,11 @@ Preferred adapter-scoped runtime layout for new installs:
         accepted_reply_policies/
         model_config.json
 ```
+
+Tenant rule:
+
+- new runtime cycles, exports, and training bundles should be written beneath `companies/<company_id>/...`
+- flat top-level `cycles/`, `exports/`, and `training_bundles/` paths remain readable only for compatibility with older local state
 
 ## Reply Compatibility Rule
 
@@ -90,8 +100,9 @@ Runtime code should:
 
 1. resolve a machine-local base root
 2. resolve an adapter-specific runtime root beneath it
-3. store traces, bundles, policies, and config under that adapter root
-4. reject repository-local runtime roots by default
+3. store per-company traces, bundles, and runtime state beneath `companies/<company_id>/`
+4. store accepted policies, accepted artifact registry state, and config under the adapter root
+5. reject repository-local runtime roots by default
 
 ## Practical Decision Rule
 

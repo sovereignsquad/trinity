@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from trinity_core.adapters import REPLY_ADAPTER_NAME, require_supported_adapter
+from trinity_core.adapters import IMPACT_ADAPTER_NAME, REPLY_ADAPTER_NAME, require_supported_adapter
+from trinity_core.impact_runtime import (
+    impact_outcome_event_from_payload,
+    impact_profile_snapshot_from_payload,
+)
 from trinity_core.model_config import (
     TrinityReplyModelConfig,
     TrinityRoleRoute,
@@ -21,7 +25,11 @@ from trinity_core.model_config import (
 from trinity_core.ops import (
     AcceptedArtifactRegistry,
     accept_reply_behavior_policy,
+    default_train_proposal_paths,
     load_reply_shadow_fixtures,
+    persist_reply_policy_review_result,
+    propose_reply_policy_with_train,
+    review_reply_behavior_policy,
     run_reply_shadow_fixtures,
     shadow_fixture_payload,
     summarize_reply_shadow_results,
@@ -41,7 +49,10 @@ COMMAND_ALIASES = {
     "reply-export-trace": "export-trace",
     "reply-export-training-bundle": "export-training-bundle",
     "reply-run-shadow-fixtures": "run-shadow-fixtures",
+    "reply-train-propose-policy": "train-propose-policy",
     "reply-policy-accept": "policy-accept",
+    "reply-policy-review": "policy-review",
+    "reply-policy-review-surface": "policy-review-surface",
     "reply-policy-promote": "policy-promote",
     "reply-policy-rollback": "policy-rollback",
     "reply-policy-status": "policy-status",
@@ -66,13 +77,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "suggest":
         payload = _load_json(args.input_file)
-        result = runtime.suggest(thread_snapshot_from_payload(payload))
+        result = runtime.suggest(_load_snapshot_for_adapter(adapter_name, payload))
         _write_json(dataclass_payload(result))
         return 0
 
     if command == "record-outcome":
         payload = _load_json(args.input_file)
-        result = runtime.record_outcome(outcome_event_from_payload(payload))
+        result = runtime.record_outcome(_load_outcome_for_adapter(adapter_name, payload))
         _write_json(result)
         return 0
 
@@ -90,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if command == "run-shadow-fixtures":
+        _require_reply_adapter(adapter_name, command)
         fixture_dir = args.fixture_dir or str(
             Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "reply_shadow"
         )
@@ -105,16 +117,58 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if command == "policy-accept":
+        _require_reply_adapter(adapter_name, command)
+        require_holdout = _resolve_holdout_requirement(args)
         result = accept_reply_behavior_policy(
             args.policy_file,
             bundle_files=list(args.bundle_file),
+            holdout_bundle_files=list(args.holdout_bundle_file),
+            require_holdout=require_holdout,
             regression_threshold=float(args.regression_threshold),
             reason=args.reason,
+            source_train_project_key=args.source_train_project_key,
+            source_train_run_id=args.source_train_run_id,
+            skeptical_notes=tuple(args.skeptical_note),
         )
         _write_json(dataclass_payload(result))
         return 0 if result.accepted else 2
 
+    if command == "policy-review":
+        _require_reply_adapter(adapter_name, command)
+        require_holdout = _resolve_holdout_requirement(args)
+        result = review_reply_behavior_policy(
+            args.policy_file,
+            bundle_files=list(args.bundle_file),
+            holdout_bundle_files=list(args.holdout_bundle_file),
+            require_holdout=require_holdout,
+            regression_threshold=float(args.regression_threshold),
+            source_train_project_key=args.source_train_project_key,
+            source_train_run_id=args.source_train_run_id,
+            skeptical_notes=tuple(args.skeptical_note),
+        )
+        result = persist_reply_policy_review_result(registry, result)
+        _write_json(dataclass_payload(result))
+        return 0 if result.ready_for_acceptance else 2
+
+    if command == "policy-review-surface":
+        _require_reply_adapter(adapter_name, command)
+        require_holdout = _resolve_holdout_requirement(args)
+        result = review_reply_behavior_policy(
+            args.policy_file,
+            bundle_files=list(args.bundle_file),
+            holdout_bundle_files=list(args.holdout_bundle_file),
+            require_holdout=require_holdout,
+            regression_threshold=float(args.regression_threshold),
+            source_train_project_key=args.source_train_project_key,
+            source_train_run_id=args.source_train_run_id,
+            skeptical_notes=tuple(args.skeptical_note),
+        )
+        result = persist_reply_policy_review_result(registry, result)
+        _write_json(_policy_review_surface_payload(result))
+        return 0 if result.ready_for_acceptance else 2
+
     if command == "policy-promote":
+        _require_reply_adapter(adapter_name, command)
         accepted_at = (
             _parse_datetime(args.accepted_at)
             if args.accepted_at
@@ -131,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if command == "policy-rollback":
+        _require_reply_adapter(adapter_name, command)
         result = registry.rollback(
             str(args.artifact_key),
             target_version=args.target_version,
@@ -141,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if command == "policy-status":
+        _require_reply_adapter(adapter_name, command)
         current = registry.current_pointer(str(args.artifact_key))
         history = registry.history(str(args.artifact_key))
         _write_json(
@@ -156,6 +212,63 @@ def main(argv: list[str] | None = None) -> int:
         payload = dataclass_payload(load_model_config_for_adapter(adapter_name))
         if args.include_path:
             payload["config_path"] = str(config_path_for_adapter(adapter_name))
+        _write_json(payload)
+        return 0
+
+    if command == "train-propose-policy":
+        _require_reply_adapter(adapter_name, command)
+        bundle_files = list(args.bundle_file or [])
+        if args.cycle_id and not args.bundle_type:
+            raise ValueError("--bundle-type is required when using --cycle-id.")
+        for cycle_id in list(args.cycle_id or []):
+            exported = runtime.export_training_bundle(
+                UUID(cycle_id),
+                bundle_type=training_bundle_type_from_payload(args.bundle_type),
+            )
+            bundle_files.append(exported["bundle_path"])
+        if not bundle_files:
+            raise ValueError("At least one --cycle-id or --bundle-file is required.")
+        proposal_output_path = args.proposal_output_path
+        eval_output_path = args.eval_output_path
+        if not proposal_output_path or not eval_output_path:
+            default_proposal_path, default_eval_path = default_train_proposal_paths(
+                adapter_name=adapter_name,
+                learner_kind=str(args.learner_kind),
+            )
+            proposal_output_path = proposal_output_path or str(default_proposal_path)
+            eval_output_path = eval_output_path or str(default_eval_path)
+        train_result = propose_reply_policy_with_train(
+            learner_kind=str(args.learner_kind),
+            bundle_files=bundle_files,
+            transport=str(args.transport),
+            train_api_base_url=args.train_api_base_url,
+            train_root_dir=args.train_root_dir,
+            proposal_output_path=proposal_output_path,
+            eval_output_path=eval_output_path,
+        )
+        payload = {
+            "adapter": adapter_name,
+            "transport": str(args.transport),
+            "learner_kind": str(args.learner_kind),
+            "bundle_files": bundle_files,
+            "train_result": train_result,
+        }
+        if args.accept:
+            require_holdout = _resolve_holdout_requirement(args)
+            acceptance = accept_reply_behavior_policy(
+                train_result["proposal_path"],
+                bundle_files=bundle_files,
+                holdout_bundle_files=list(args.holdout_bundle_file),
+                require_holdout=require_holdout,
+                regression_threshold=float(args.regression_threshold),
+                reason=args.reason,
+                source_train_project_key=train_result.get("train_project_key"),
+                source_train_run_id=train_result.get("train_run_id"),
+                skeptical_notes=tuple(args.skeptical_note),
+            )
+            payload["acceptance_result"] = dataclass_payload(acceptance)
+            _write_json(payload)
+            return 0 if acceptance.accepted else 2
         _write_json(payload)
         return 0
 
@@ -288,6 +401,28 @@ def _build_generic_parsers(subparsers: Any) -> None:
     _add_adapter_argument(shadow_parser)
     shadow_parser.add_argument("--fixture-dir")
 
+    train_parser = subparsers.add_parser(
+        "train-propose-policy",
+        help="Export Trinity bundles, invoke Train, and optionally accept the returned policy.",
+    )
+    _add_adapter_argument(train_parser)
+    train_parser.add_argument("--cycle-id", action="append")
+    train_parser.add_argument("--bundle-file", action="append")
+    train_parser.add_argument("--bundle-type")
+    train_parser.add_argument("--learner-kind", required=True)
+    train_parser.add_argument("--transport", choices=("api", "cli"), default="api")
+    train_parser.add_argument("--train-api-base-url")
+    train_parser.add_argument("--train-root-dir")
+    train_parser.add_argument("--proposal-output-path")
+    train_parser.add_argument("--eval-output-path")
+    train_parser.add_argument("--accept", action="store_true")
+    train_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    train_parser.add_argument("--require-holdout", action="store_true")
+    train_parser.add_argument("--allow-no-holdout", action="store_true")
+    train_parser.add_argument("--skeptical-note", action="append", default=[])
+    train_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    train_parser.add_argument("--reason")
+
     accept_parser = subparsers.add_parser(
         "policy-accept",
         help="Validate and accept one adapter policy artifact against training bundles.",
@@ -295,8 +430,47 @@ def _build_generic_parsers(subparsers: Any) -> None:
     _add_adapter_argument(accept_parser)
     accept_parser.add_argument("--policy-file", required=True)
     accept_parser.add_argument("--bundle-file", action="append", required=True)
+    accept_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    accept_parser.add_argument("--require-holdout", action="store_true")
+    accept_parser.add_argument("--allow-no-holdout", action="store_true")
     accept_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    accept_parser.add_argument("--source-train-project-key")
+    accept_parser.add_argument("--source-train-run-id")
+    accept_parser.add_argument("--skeptical-note", action="append", default=[])
     accept_parser.add_argument("--reason")
+
+    review_parser = subparsers.add_parser(
+        "policy-review",
+        help="Review one adapter policy artifact against proposal and optional holdout bundles.",
+    )
+    _add_adapter_argument(review_parser)
+    review_parser.add_argument("--policy-file", required=True)
+    review_parser.add_argument("--bundle-file", action="append", required=True)
+    review_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    review_parser.add_argument("--require-holdout", action="store_true")
+    review_parser.add_argument("--allow-no-holdout", action="store_true")
+    review_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    review_parser.add_argument("--source-train-project-key")
+    review_parser.add_argument("--source-train-run-id")
+    review_parser.add_argument("--skeptical-note", action="append", default=[])
+
+    review_surface_parser = subparsers.add_parser(
+        "policy-review-surface",
+        help=(
+            "Render a promotion-oriented review surface with acceptance mode "
+            "and Train provenance."
+        ),
+    )
+    _add_adapter_argument(review_surface_parser)
+    review_surface_parser.add_argument("--policy-file", required=True)
+    review_surface_parser.add_argument("--bundle-file", action="append", required=True)
+    review_surface_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    review_surface_parser.add_argument("--require-holdout", action="store_true")
+    review_surface_parser.add_argument("--allow-no-holdout", action="store_true")
+    review_surface_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    review_surface_parser.add_argument("--source-train-project-key")
+    review_surface_parser.add_argument("--source-train-run-id")
+    review_surface_parser.add_argument("--skeptical-note", action="append", default=[])
 
     promote_parser = subparsers.add_parser(
         "policy-promote",
@@ -368,11 +542,57 @@ def _build_reply_compat_parsers(subparsers: Any) -> None:
     shadow_parser = subparsers.add_parser("reply-run-shadow-fixtures")
     shadow_parser.add_argument("--fixture-dir")
 
+    train_parser = subparsers.add_parser("reply-train-propose-policy")
+    train_parser.add_argument("--cycle-id", action="append")
+    train_parser.add_argument("--bundle-file", action="append")
+    train_parser.add_argument("--bundle-type")
+    train_parser.add_argument("--learner-kind", required=True)
+    train_parser.add_argument("--transport", choices=("api", "cli"), default="api")
+    train_parser.add_argument("--train-api-base-url")
+    train_parser.add_argument("--train-root-dir")
+    train_parser.add_argument("--proposal-output-path")
+    train_parser.add_argument("--eval-output-path")
+    train_parser.add_argument("--accept", action="store_true")
+    train_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    train_parser.add_argument("--require-holdout", action="store_true")
+    train_parser.add_argument("--allow-no-holdout", action="store_true")
+    train_parser.add_argument("--skeptical-note", action="append", default=[])
+    train_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    train_parser.add_argument("--reason")
+
     accept_parser = subparsers.add_parser("reply-policy-accept")
     accept_parser.add_argument("--policy-file", required=True)
     accept_parser.add_argument("--bundle-file", action="append", required=True)
+    accept_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    accept_parser.add_argument("--require-holdout", action="store_true")
+    accept_parser.add_argument("--allow-no-holdout", action="store_true")
     accept_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    accept_parser.add_argument("--source-train-project-key")
+    accept_parser.add_argument("--source-train-run-id")
+    accept_parser.add_argument("--skeptical-note", action="append", default=[])
     accept_parser.add_argument("--reason")
+
+    review_parser = subparsers.add_parser("reply-policy-review")
+    review_parser.add_argument("--policy-file", required=True)
+    review_parser.add_argument("--bundle-file", action="append", required=True)
+    review_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    review_parser.add_argument("--require-holdout", action="store_true")
+    review_parser.add_argument("--allow-no-holdout", action="store_true")
+    review_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    review_parser.add_argument("--source-train-project-key")
+    review_parser.add_argument("--source-train-run-id")
+    review_parser.add_argument("--skeptical-note", action="append", default=[])
+
+    review_surface_parser = subparsers.add_parser("reply-policy-review-surface")
+    review_surface_parser.add_argument("--policy-file", required=True)
+    review_surface_parser.add_argument("--bundle-file", action="append", required=True)
+    review_surface_parser.add_argument("--holdout-bundle-file", action="append", default=[])
+    review_surface_parser.add_argument("--require-holdout", action="store_true")
+    review_surface_parser.add_argument("--allow-no-holdout", action="store_true")
+    review_surface_parser.add_argument("--regression-threshold", type=float, default=0.0)
+    review_surface_parser.add_argument("--source-train-project-key")
+    review_surface_parser.add_argument("--source-train-run-id")
+    review_surface_parser.add_argument("--skeptical-note", action="append", default=[])
 
     promote_parser = subparsers.add_parser("reply-policy-promote")
     promote_parser.add_argument("--artifact-key", required=True)
@@ -407,7 +627,7 @@ def _add_adapter_argument(parser: Any) -> None:
     parser.add_argument(
         "--adapter",
         default=REPLY_ADAPTER_NAME,
-        help="Product adapter to use. Currently supported: reply.",
+        help="Product adapter to use. Currently supported: reply, impact.",
     )
 
 
@@ -423,11 +643,84 @@ def _write_json(payload: dict[str, Any]) -> None:
     sys.stdout.write("\n")
 
 
+def _resolve_holdout_requirement(args: Any) -> bool:
+    if bool(getattr(args, "allow_no_holdout", False)):
+        return False
+    return True or bool(getattr(args, "require_holdout", False))
+
+
+def _policy_review_surface_payload(result: Any) -> dict[str, Any]:
+    review_payload = dataclass_payload(result)
+    policy_payload = review_payload["policy"]
+    scope_kind = str(policy_payload["scope_kind"])
+    scope_value = policy_payload.get("scope_value")
+    return {
+        "ready_for_acceptance": bool(result.ready_for_acceptance),
+        "recommended_action": (
+            "accept" if result.ready_for_acceptance else "revise_or_reject"
+        ),
+        "review_decision_id": result.review_decision_id,
+        "acceptance_mode": result.acceptance_mode,
+        "holdout_required": bool(result.holdout_required),
+        "holdout_bundle_count": int(result.holdout_bundle_count),
+        "scope": {
+            "kind": scope_kind,
+            "value": scope_value,
+        },
+        "candidate_policy": {
+            "artifact_key": policy_payload["artifact_key"],
+            "version": policy_payload["version"],
+            "source_project": policy_payload["source_project"],
+            "contract_version": policy_payload["contract_version"],
+        },
+        "incumbent_policy_version": result.incumbent_policy_version,
+        "train_provenance": {
+            "project_key": result.source_train_project_key,
+            "run_id": result.source_train_run_id,
+        },
+        "scores": {
+            "candidate": result.candidate_score,
+            "incumbent": result.incumbent_score,
+            "proposal_delta": result.regression_delta,
+            "holdout_candidate": result.holdout_candidate_score,
+            "holdout_incumbent": result.holdout_incumbent_score,
+            "holdout_delta": result.holdout_regression_delta,
+        },
+        "skeptical_notes": list(result.skeptical_notes),
+        "reason": result.reason,
+        "review": review_payload,
+    }
+
+
 def _parse_datetime(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         raise ValueError("Timestamp must be timezone-aware.")
     return parsed
+
+
+def _load_snapshot_for_adapter(adapter_name: str, payload: dict[str, Any]) -> Any:
+    if adapter_name == REPLY_ADAPTER_NAME:
+        return thread_snapshot_from_payload(payload)
+    if adapter_name == IMPACT_ADAPTER_NAME:
+        return impact_profile_snapshot_from_payload(payload)
+    raise AssertionError(f"Unhandled adapter snapshot loader: {adapter_name}")
+
+
+def _load_outcome_for_adapter(adapter_name: str, payload: dict[str, Any]) -> Any:
+    if adapter_name == REPLY_ADAPTER_NAME:
+        return outcome_event_from_payload(payload)
+    if adapter_name == IMPACT_ADAPTER_NAME:
+        return impact_outcome_event_from_payload(payload)
+    raise AssertionError(f"Unhandled adapter outcome loader: {adapter_name}")
+
+
+def _require_reply_adapter(adapter_name: str, command: str) -> None:
+    if adapter_name != REPLY_ADAPTER_NAME:
+        raise ValueError(
+            f"{command} is currently implemented only for the reply adapter. "
+            "Use --adapter reply for policy, Train, and shadow-fixture workflows."
+        )
 
 
 if __name__ == "__main__":

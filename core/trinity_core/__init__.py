@@ -1,6 +1,7 @@
 """Core runtime package for Trinity."""
 
 from trinity_core.adapters import (
+    IMPACT_ADAPTER_NAME,
     REPLY_ADAPTER_NAME,
     SUPPORTED_ADAPTER_NAMES,
     TrinityAdapterDescriptor,
@@ -89,6 +90,7 @@ __all__ = [
     "StageFailure",
     "canonicalize_content",
     "compute_content_hash",
+    "IMPACT_ADAPTER_NAME",
     "ingest_evidence",
     "normalize_adapter_name",
     "require_supported_adapter",

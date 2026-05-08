@@ -67,6 +67,11 @@ def test_channel_policy_requires_scope_value() -> None:
         _base_policy(scope_kind=ReplyBehaviorScopeKind.CHANNEL)
 
 
+def test_company_policy_requires_scope_value() -> None:
+    with pytest.raises(ValueError, match="scope_value is required"):
+        _base_policy(scope_kind=ReplyBehaviorScopeKind.COMPANY)
+
+
 def test_policy_round_trip_from_payload_preserves_validated_shape() -> None:
     policy = _base_policy(
         scope_kind=ReplyBehaviorScopeKind.CHANNEL,
@@ -101,6 +106,28 @@ def test_select_reply_behavior_policy_prefers_channel_over_global() -> None:
     )
 
     assert selected is channel_policy
+
+
+def test_select_reply_behavior_policy_prefers_company_over_channel() -> None:
+    company_id = "11111111-1111-5111-8111-111111111111"
+    channel_policy = _base_policy(
+        scope_kind=ReplyBehaviorScopeKind.CHANNEL,
+        scope_value="linkedin",
+        version="channel-v1",
+    )
+    company_policy = _base_policy(
+        scope_kind=ReplyBehaviorScopeKind.COMPANY,
+        scope_value=company_id,
+        version="company-v1",
+    )
+
+    selected = select_reply_behavior_policy(
+        (channel_policy, company_policy),
+        company_id=company_id,
+        channel="linkedin",
+    )
+
+    assert selected is company_policy
 
 
 def test_select_reply_behavior_policy_breaks_same_scope_ties_deterministically() -> None:

@@ -1,4 +1,4 @@
-"""Runtime model routing for Trinity drafting roles."""
+"""Runtime model routing for Trinity adapter roles."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from trinity_core.adapters import REPLY_ADAPTER_NAME, normalize_adapter_name
+from trinity_core.adapters import (
+    REPLY_ADAPTER_NAME,
+    normalize_adapter_name,
+    require_supported_adapter,
+)
 from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 
 DEFAULT_TRINITY_GENERATOR_MODEL = "granite4:350m"
@@ -152,19 +156,102 @@ def save_reply_model_config(config: TrinityReplyModelConfig) -> Path:
 
 
 def load_model_config_for_adapter(adapter_name: str) -> TrinityReplyModelConfig:
-    normalized_adapter = normalize_adapter_name(adapter_name)
-    if normalized_adapter != REPLY_ADAPTER_NAME:
-        raise ValueError(f"Unsupported model configuration adapter: {normalized_adapter}.")
-    return load_reply_model_config()
+    normalized_adapter = require_supported_adapter(adapter_name)
+    file_payload = _load_config_file(normalized_adapter)
+    provider = _resolve_value(
+        "TRINITY_MODEL_PROVIDER",
+        file_payload,
+        "provider",
+        "deterministic",
+    ).lower()
+    return TrinityReplyModelConfig(
+        provider=provider,
+        ollama_base_url=_resolve_ollama_base_url(file_payload),
+        timeout_seconds=_resolve_float(
+            "TRINITY_LLM_TIMEOUT_SECONDS",
+            file_payload,
+            "timeout_seconds",
+            45.0,
+            minimum=1.0,
+            maximum=300.0,
+        ),
+        generator=TrinityRoleRoute(
+            provider=provider,
+            model=_resolve_value(
+                "TRINITY_GENERATOR_MODEL",
+                file_payload,
+                "generator_model",
+                DEFAULT_TRINITY_GENERATOR_MODEL,
+            ),
+            temperature=_resolve_float(
+                "TRINITY_GENERATOR_TEMPERATURE",
+                file_payload,
+                "generator_temperature",
+                0.25,
+                minimum=0.0,
+                maximum=2.0,
+            ),
+            keep_alive=_resolve_value(
+                "TRINITY_GENERATOR_KEEP_ALIVE",
+                file_payload,
+                "generator_keep_alive",
+                "10m",
+            ),
+        ),
+        refiner=TrinityRoleRoute(
+            provider=provider,
+            model=_resolve_value(
+                "TRINITY_REFINER_MODEL",
+                file_payload,
+                "refiner_model",
+                DEFAULT_TRINITY_REFINER_MODEL,
+            ),
+            temperature=_resolve_float(
+                "TRINITY_REFINER_TEMPERATURE",
+                file_payload,
+                "refiner_temperature",
+                0.35,
+                minimum=0.0,
+                maximum=2.0,
+            ),
+            keep_alive=_resolve_value(
+                "TRINITY_REFINER_KEEP_ALIVE",
+                file_payload,
+                "refiner_keep_alive",
+                "10m",
+            ),
+        ),
+        evaluator=TrinityRoleRoute(
+            provider=provider,
+            model=_resolve_value(
+                "TRINITY_EVALUATOR_MODEL",
+                file_payload,
+                "evaluator_model",
+                DEFAULT_TRINITY_EVALUATOR_MODEL,
+            ),
+            temperature=_resolve_float(
+                "TRINITY_EVALUATOR_TEMPERATURE",
+                file_payload,
+                "evaluator_temperature",
+                0.1,
+                minimum=0.0,
+                maximum=2.0,
+            ),
+            keep_alive=_resolve_value(
+                "TRINITY_EVALUATOR_KEEP_ALIVE",
+                file_payload,
+                "evaluator_keep_alive",
+                "10m",
+            ),
+        ),
+    )
 
 
 def save_model_config_for_adapter(
     adapter_name: str,
     config: TrinityReplyModelConfig,
 ) -> Path:
-    normalized_adapter = normalize_adapter_name(adapter_name)
-    if normalized_adapter != REPLY_ADAPTER_NAME:
-        raise ValueError(f"Unsupported model configuration adapter: {normalized_adapter}.")
+    normalized_adapter = require_supported_adapter(adapter_name)
     path = config_path_for_adapter(normalized_adapter)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(config), indent=2, sort_keys=True), encoding="utf-8")

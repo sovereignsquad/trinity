@@ -373,6 +373,61 @@ class StageEvidenceAnchor:
 
 
 @dataclass(frozen=True, slots=True)
+class PolicyResolutionCandidate:
+    """One scope considered during runtime policy resolution."""
+
+    scope_kind: str
+    scope_value: str | None
+    matched: bool
+    policy_version: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_text(self.scope_kind, field_name="scope_kind")
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyResolutionSummary:
+    """Explain how Trinity resolved the active behavior policy for one cycle."""
+
+    requested_company_id: str | None
+    requested_channel: str | None
+    matched_scope_kind: str | None
+    matched_scope_value: str | None
+    matched_policy_version: str | None
+    resolution_path: tuple[str, ...]
+    considered_scopes: tuple[PolicyResolutionCandidate, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.resolution_path:
+            raise ValueError("resolution_path is required.")
+
+
+@dataclass(frozen=True, slots=True)
+class BundleNegativeCandidate:
+    """Preserved negative sample for bounded offline learning."""
+
+    candidate_id: UUID
+    candidate_kind: str
+    state: str
+    rank: int | None
+    content: str
+    rationale: str
+    source_evidence_ids: tuple[UUID, ...]
+    source_candidate_ids: tuple[UUID, ...] = ()
+    delivery_eligible: bool = False
+
+    def __post_init__(self) -> None:
+        _require_text(self.candidate_kind, field_name="candidate_kind")
+        _require_text(self.state, field_name="state")
+        _require_text(self.content, field_name="content")
+        _require_text(self.rationale, field_name="rationale")
+        if not self.source_evidence_ids and not self.source_candidate_ids:
+            raise ValueError("Negative sample must preserve evidence or candidate lineage.")
+        if self.rank is not None and self.rank < 1:
+            raise ValueError("rank must be greater than or equal to 1.")
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeTraceExport:
     """Replayable Trinity export for Train trace ingestion."""
 
@@ -385,6 +440,7 @@ class RuntimeTraceExport:
     frontier_candidate_ids: tuple[UUID, ...]
     ranked_draft_set: RankedDraftSet
     accepted_artifact_version: AcceptedArtifactVersion
+    policy_resolution: PolicyResolutionSummary
     stage_evidence_anchors: tuple[StageEvidenceAnchor, ...] = ()
     feedback_events: tuple[DraftOutcomeEvent, ...] = ()
     model_routes: Mapping[str, str] = field(default_factory=dict)
@@ -411,11 +467,18 @@ class TrainingBundle:
     ranked_draft_set: RankedDraftSet
     selected_candidate_id: UUID | None
     draft_outcome_event: DraftOutcomeEvent
+    stage_evidence_anchors: tuple[StageEvidenceAnchor, ...] = ()
+    model_routes: Mapping[str, str] = field(default_factory=dict)
+    policy_resolution: PolicyResolutionSummary | None = None
+    surfaced_negative_candidates: tuple[BundleNegativeCandidate, ...] = ()
+    filtered_negative_candidates: tuple[BundleNegativeCandidate, ...] = ()
     labels: Mapping[str, str] = field(default_factory=dict)
     contract_version: str = REPLY_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
         _require_timezone(self.exported_at, field_name="exported_at")
+        if not self.stage_evidence_anchors:
+            raise ValueError("stage_evidence_anchors is required.")
         if self.selected_candidate_id is not None:
             ranked_candidate_ids = {draft.candidate_id for draft in self.ranked_draft_set.drafts}
             if self.selected_candidate_id not in ranked_candidate_ids:
