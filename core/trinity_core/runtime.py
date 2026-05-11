@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from trinity_core.adapters import REPLY_ADAPTER_NAME, SPOT_ADAPTER_NAME, require_supported_adapter
-from trinity_core.adapters.product.spot import SpotRuntime
-from trinity_core.reply_runtime import ReplyRuntime
+from trinity_core.adapters import (
+    REPLY_ADAPTER_NAME,
+    instantiate_adapter_runtime,
+    require_supported_adapter,
+)
 
 
 class TrinityRuntime:
@@ -20,13 +22,11 @@ class TrinityRuntime:
         policy_store: Any | None = None,
     ) -> None:
         self.adapter_name = require_supported_adapter(adapter_name)
-        if self.adapter_name == REPLY_ADAPTER_NAME:
-            self._runtime = ReplyRuntime(store=store, policy_store=policy_store)
-            return
-        if self.adapter_name == SPOT_ADAPTER_NAME:
-            self._runtime = SpotRuntime(store=store, policy_store=policy_store)
-            return
-        raise AssertionError(f"Unhandled adapter: {self.adapter_name}")
+        self._runtime = instantiate_adapter_runtime(
+            self.adapter_name,
+            store=store,
+            policy_store=policy_store,
+        )
 
     @property
     def model_provider(self) -> Any:

@@ -40,6 +40,7 @@ The repository now distinguishes:
 Current adapter support:
 
 - `reply`
+- `spot` as a bounded reasoning/review slice
 
 Current compatibility posture:
 
@@ -55,15 +56,17 @@ Reusable runtime contracts live in:
 - [core/trinity_core/schemas/evidence.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/evidence.py)
 - [core/trinity_core/schemas/candidate.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/candidate.py)
 
-Adapter-facing Reply contracts live in:
+Adapter-facing contracts currently live in:
 
 - [core/trinity_core/schemas/integration.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/integration.py)
 - [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
+- [core/trinity_core/schemas/spot_integration.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/spot_integration.py)
 
 ## Core Code Paths
 
 - generic runtime facade: [core/trinity_core/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/runtime.py)
 - Reply runtime implementation: [core/trinity_core/reply_runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/reply_runtime.py)
+- Spot runtime implementation: [core/trinity_core/adapters/product/spot/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/adapters/product/spot/runtime.py)
 - adapter helpers: [core/trinity_core/adapters](/Users/Shared/Projects/trinity/core/trinity_core/adapters)
 - CLI: [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
 - storage helpers: [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
@@ -84,4 +87,15 @@ What remains:
 - move more Reply-owned policy and mapping logic into deeper adapter packages
 - generalize shared abstractions only where two adapters require them
 - keep the Reply policy/train lane explicit until another adapter actually needs a shared promotion contract
-- do not implement a second adapter until there is a real downstream need
+- keep new downstream apps on their own adapter seams rather than stretching Reply semantics
+
+## New App Rule
+
+If you are connecting a new downstream app such as `{compare}`, add a new adapter.
+
+Do not reuse `reply` unless the product is actually a reply-drafting workflow with Reply-shaped contracts.
+
+Start here:
+
+- [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)
+- [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)

@@ -23,17 +23,33 @@ Implemented today:
 - generic runtime facade in [core/trinity_core/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/runtime.py)
 - adapter-scoped storage helpers in [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
 - generic CLI surface in [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
-- first production adapter contract for `{reply}`
+- first mature drafting adapter for `{reply}`
+- one bounded reasoning adapter slice for `{spot}`
 
 Current restoration focus:
 
-- keep `{reply}` stable as the first production embedding
+- keep `{reply}` stable as the first production embedding without letting it define the platform identity
 - restore `{trinity}` as the proper core system around active memory, minority reports, bounded loop control, and HiTL
-- create a clean reasoning seam for `{spot}` without leaking Reply draft semantics
+- create clean downstream seams for `{spot}` and future apps without leaking Reply draft semantics
 
 Implemented adapter support:
 
 - `reply`
+- `spot` as a bounded reasoning/review slice
+
+## Who This Repo Is For
+
+This repository is for:
+
+- teams integrating a downstream app with `{trinity}`
+- contributors extending the runtime core
+- adapter authors adding a new product embedding
+
+If you are integrating a new app, start here:
+
+- [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)
+- [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
+- [docs/THIRD_APP_PREPARATION_PLAN.md](/Users/Shared/Projects/trinity/docs/THIRD_APP_PREPARATION_PLAN.md)
 
 Implemented model-provider support:
 
@@ -81,40 +97,38 @@ Primary responsibility split:
 
 Preferred generic commands:
 
-- `suggest --adapter reply`
-- `record-outcome --adapter reply`
-- `export-trace --adapter reply`
-- `export-training-bundle --adapter reply`
-- `train-propose-policy --adapter reply`
-- `policy-review-surface --adapter reply`
-- `run-shadow-fixtures --adapter reply`
-- `policy-accept --adapter reply`
-- `policy-promote --adapter reply`
-- `policy-rollback --adapter reply`
-- `policy-status --adapter reply`
-- `runtime-status --adapter reply`
-- `show-config --adapter reply`
-- `write-config --adapter reply`
-- `get-prepared-draft --adapter reply --company-id <company> --thread-ref <thread>`
-- `refresh-prepared-draft --adapter reply --company-id <company> --thread-ref <thread> [--reason <reason>] [--overwrite-mode <mode>]`
-- `plan-prepared-draft-refresh --adapter reply --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
-- `schedule-prepared-draft-refresh --adapter reply --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
-- `compare-providers --adapter reply`
-- `curate-eval-dataset --adapter reply --dataset-name <name> --cycle-id <uuid> --selection-reason <reason>`
+- `suggest --adapter <adapter>`
+- `record-outcome --adapter <adapter>`
+- `export-trace --adapter <adapter>`
+- `export-training-bundle --adapter <adapter>`
+- `runtime-status --adapter <adapter>`
+- `show-config --adapter <adapter>`
+- `write-config --adapter <adapter>`
+- `ingest-memory-event --adapter <adapter>`
+- `register-document --adapter <adapter>`
+- `get-prepared-draft --adapter <adapter> --company-id <company> --thread-ref <thread>`
+- `refresh-prepared-draft --adapter <adapter> --company-id <company> --thread-ref <thread> [--reason <reason>] [--overwrite-mode <mode>]`
+- `plan-prepared-draft-refresh --adapter <adapter> --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
+- `schedule-prepared-draft-refresh --adapter <adapter> --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
+- `compare-providers --adapter <adapter>`
+- `curate-eval-dataset --adapter <adapter> --dataset-name <name> --cycle-id <uuid> --selection-reason <reason>`
 - `replay-eval-dataset --dataset-file <path>`
-- `make-control-job --adapter reply`
+- `make-control-job --adapter <adapter>`
 - `run-control-job --job-file <path>`
-- `control-run-status --adapter reply --run-id <uuid>`
+- `control-run-status --adapter <adapter> --run-id <uuid>`
 - `make-gobii-workflow --job-file <path> --schedule <expr>`
 - `register-gobii-workflow --bundle-file <path> [options]`
-- `make-gobii-profile-enrichment --adapter reply --input-file <path> [options]`
-- `submit-gobii-profile-enrichment --adapter reply --bundle-file <path> [options]`
-- `submit-gobii-task --adapter reply --prompt <text> [options]`
-- `gobii-task-result --adapter reply --task-id <id> [options]`
-- `list-gobii-tasks --adapter reply [options]`
-- `cancel-gobii-task --adapter reply --task-id <id> [options]`
-- `normalize-gobii-task --adapter reply --input-file <path>`
-- `normalize-gobii-profile-enrichment --adapter reply --bundle-file <path>`
+- `submit-gobii-task --adapter <adapter> --prompt <text> [options]`
+- `gobii-task-result --adapter <adapter> --task-id <id> [options]`
+- `list-gobii-tasks --adapter <adapter> [options]`
+- `cancel-gobii-task --adapter <adapter> --task-id <id> [options]`
+- `normalize-gobii-task --adapter <adapter> --input-file <path>`
+
+Current implemented examples:
+
+- `suggest --adapter reply`
+- `reason-spot --adapter spot`
+- `record-spot-review-outcome --adapter spot`
 
 Compatibility aliases:
 
@@ -138,7 +152,7 @@ Examples:
 ```bash
 cd /Users/Shared/Projects/trinity
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
-PYTHONPATH=core uv run python -m trinity_core.cli run-shadow-fixtures --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli reason-spot --adapter spot --input-file /tmp/spot-request.json
 ```
 
 Policy acceptance note:
@@ -233,6 +247,7 @@ Do not:
 - [docs/TRINITY_OVERVIEW.md](/Users/Shared/Projects/trinity/docs/TRINITY_OVERVIEW.md)
 - [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
 - [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+- [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)
 - [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
 - [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
 - [docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md)

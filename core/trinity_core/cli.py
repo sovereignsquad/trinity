@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from trinity_core.adapters import REPLY_ADAPTER_NAME, require_supported_adapter
+from trinity_core.adapters import (
+    REPLY_ADAPTER_NAME,
+    SUPPORTED_ADAPTER_NAME_LIST,
+    require_supported_adapter,
+)
 from trinity_core.adapters.model import UnsupportedModelProviderError
 from trinity_core.adapters.product.reply import (
     document_record_from_payload,
@@ -1480,7 +1484,10 @@ def _add_adapter_argument(parser: Any) -> None:
     parser.add_argument(
         "--adapter",
         default=REPLY_ADAPTER_NAME,
-        help="Product adapter to use. Currently supported: reply, spot.",
+        help=(
+            "Product adapter to use. "
+            f"Currently implemented adapters: {SUPPORTED_ADAPTER_NAME_LIST}."
+        ),
     )
 
 

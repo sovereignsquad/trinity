@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from trinity_core.adapters import get_adapter_descriptor, list_supported_adapters
 from trinity_core.adapters.product.spot import SpotRuntime
 from trinity_core.cli import main
 from trinity_core.memory import ReplyMemoryStore
@@ -66,6 +67,15 @@ def test_resolve_adapter_runtime_paths_can_fall_back_to_legacy_reply_root(tmp_pa
 def test_trinity_runtime_rejects_unknown_adapter() -> None:
     with pytest.raises(ValueError, match="Unsupported Trinity adapter"):
         TrinityRuntime(adapter_name="openmythos")
+
+
+def test_adapter_registry_exposes_runtime_descriptors() -> None:
+    descriptors = {descriptor.adapter_name: descriptor for descriptor in list_supported_adapters()}
+
+    assert set(descriptors) == {"reply", "spot"}
+    assert descriptors["reply"].runtime_class_name == "ReplyRuntime"
+    assert descriptors["spot"].runtime_class_name == "SpotRuntime"
+    assert get_adapter_descriptor("spot").runtime_module.endswith(".spot.runtime")
 
 
 def test_trinity_runtime_supports_bounded_spot_reasoning(tmp_path: Path) -> None:

@@ -4,6 +4,11 @@
 
 This document explains how to add a new product adapter to `{trinity}` without collapsing product logic into runtime core.
 
+Important framing:
+
+- `{reply}` is the first mature embedding, not the default template for every new app
+- if a downstream app has its own request, candidate, review, or memory shape, it should get its own adapter
+
 ## Design Rule
 
 An adapter translates one product's world into Trinity runtime contracts.
@@ -99,3 +104,7 @@ Every adapter should ship:
 For preparatory repository work before a third downstream app lands, use:
 
 - [docs/THIRD_APP_PREPARATION_PLAN.md](/Users/Shared/Projects/trinity/docs/THIRD_APP_PREPARATION_PLAN.md)
+
+For neutral onboarding of a new downstream product, use:
+
+- [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)

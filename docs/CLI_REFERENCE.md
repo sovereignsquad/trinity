@@ -8,6 +8,12 @@ This document lists the current public CLI surface for `{trinity}`.
 
 All new integrations should use the generic commands with explicit adapter selection.
 
+Important:
+
+- generic command names do not imply every adapter supports every command
+- command support is adapter-specific and should fail explicitly when a flow is not implemented for that adapter
+- do not treat `reply` examples as the default shape for a new downstream app
+
 ### Runtime Operations
 
 - `suggest --adapter <adapter>`
@@ -36,7 +42,7 @@ All new integrations should use the generic commands with explicit adapter selec
 - `cancel-gobii-task --adapter <adapter> --task-id <id> [options]`
 - `normalize-gobii-task --adapter <adapter> --input-file <path>`
 
-Current implemented runtime path:
+Current implemented Reply drafting path:
 
 - `suggest --adapter reply`
 - `record-outcome --adapter reply`
@@ -64,7 +70,7 @@ Current implemented runtime path:
 - `cancel-gobii-task --adapter reply --task-id <id> [options]`
 - `normalize-gobii-task --adapter reply --input-file <path>`
 
-Current implemented Spot runtime path:
+Current implemented Spot reasoning path:
 
 - `reason-spot --adapter spot --input-file <path>`
 - `record-spot-review-outcome --adapter spot --input-file <path>`
@@ -117,6 +123,8 @@ The following commands remain supported for the Reply adapter:
 ```bash
 cd /Users/Shared/Projects/trinity
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli reason-spot --adapter spot --input-file /tmp/spot-request.json
+PYTHONPATH=core uv run python -m trinity_core.cli show-config --adapter spot
 PYTHONPATH=core uv run python -m trinity_core.cli compare-providers --adapter reply --include-deterministic-baseline --include-current-config
 PYTHONPATH=core uv run python -m trinity_core.cli curate-eval-dataset --adapter reply --dataset-name "Reply Production Trace Goldens" --cycle-id <uuid> --selection-reason "human-reviewed gold trace"
 PYTHONPATH=core uv run python -m trinity_core.cli replay-eval-dataset --dataset-file /tmp/reply-production-trace-goldens.json
@@ -143,6 +151,12 @@ Implemented adapters today:
 
 - `reply`
 - `spot`
+
+If you are integrating a new app, the correct path is to add a new adapter rather than reusing `reply` by default.
+
+See:
+
+- [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)
 
 Implemented model providers today:
 

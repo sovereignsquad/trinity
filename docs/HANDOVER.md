@@ -8,6 +8,9 @@ This document captures the current resume point for `{trinity}`.
 
 Most recent meaningful tranche:
 
+- the adapter seam is now less Reply-centric in code: runtime instantiation is descriptor-driven from `core/trinity_core/adapters/base.py` instead of hardcoded Reply/Spot branching in `core/trinity_core/runtime.py`
+- the generic docs were also re-framed for third-party developers: `README.md`, `docs/TRINITY_OVERVIEW.md`, `docs/CLI_REFERENCE.md`, and `docs/ADAPTER_AUTHORING_GUIDE.md` now explicitly say new downstream products should usually add their own adapter instead of reusing `{reply}`
+- neutral onboarding for future products now lives in `docs/INTEGRATING_NEW_APP.md`
 - local install guidance is now explicit in `docs/LOCAL_INSTALL.md`, so a fresh repository checkout can install the Python runtime, run the CLI, and build the macOS shell without guessing which dependencies are required versus optional
 - `README.md`, `docs/TECH_STACK.md`, and `docs/MACOS_DEVELOPMENT.md` now point at that install path and clarify that `ollama`, `mistral-cli`, and Gobii are optional lanes rather than base install requirements
 - a concrete preparation plan for a third downstream app is now in-repo at `docs/THIRD_APP_PREPARATION_PLAN.md`, so the next adapter can land through an explicit checklist instead of another round of architectural rediscovery

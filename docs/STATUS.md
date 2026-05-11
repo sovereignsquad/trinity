@@ -18,6 +18,7 @@ Current phase:
 - the ideabank now has 25 structured feature issues seeded from current platform patterns across memory, orchestration, evaluation, browser ops, guardrails, and release governance
 - a concrete third-app preparation plan now exists so the next downstream adapter can land through the current seam without another round of architecture cleanup
 - local install documentation now explicitly covers required versus optional dependencies so a fresh checkout can install the runtime, CLI, and macOS shell without prior repository context
+- generic adapter registration and runtime dispatch are now descriptor-driven rather than hardcoded branch wiring, and the top-level docs now explicitly position new downstream apps as new adapters rather than Reply variants
 
 Primary active lane:
 
@@ -102,6 +103,7 @@ The repository currently has:
 - Spot runtime high-risk gating is now tighter: violent-threat phrasing can no longer fall through the benign auto-approve path just because it lacks the earlier narrower hostile-term anchors
 - third-app onboarding preparation is now documented in `docs/THIRD_APP_PREPARATION_PLAN.md`, including adapter registration, CLI gating, memory participation, and optional policy/train seams
 - local installation and dependency setup are now documented in `docs/LOCAL_INSTALL.md`, with explicit separation between required base tooling and optional provider or Gobii dependencies
+- neutral new-app onboarding is now documented in `docs/INTEGRATING_NEW_APP.md`, and generic docs now describe `{reply}` as the first mature embedding rather than the default integration model
 
 ## Verified Working
 
