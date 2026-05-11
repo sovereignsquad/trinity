@@ -11,10 +11,32 @@ from difflib import SequenceMatcher
 from typing import Any
 from uuid import UUID, uuid4
 
-from trinity_core.model_config import load_reply_model_config
-from trinity_core.ollama_client import OllamaChatClient
+from trinity_core.adapters.model import build_model_provider
+from trinity_core.adapters.product.reply.payloads import (
+    document_record_from_payload as adapter_document_record_from_payload,
+)
+from trinity_core.adapters.product.reply.payloads import (
+    memory_event_from_payload as adapter_memory_event_from_payload,
+)
+from trinity_core.adapters.product.reply.payloads import (
+    outcome_event_from_payload as adapter_outcome_event_from_payload,
+)
+from trinity_core.adapters.product.reply.payloads import (
+    thread_snapshot_from_payload as adapter_thread_snapshot_from_payload,
+)
+from trinity_core.memory import (
+    ReplyMemoryResolver,
+    ReplyMemoryStore,
+    build_runtime_memory_profile,
+)
+from trinity_core.model_config import load_model_config
 from trinity_core.ops.cycle_store import RuntimeCycleStore, dataclass_payload
 from trinity_core.ops.reply_policy_store import ReplyPolicyStore
+from trinity_core.ops.runtime_trace import (
+    build_runtime_loop_decision_payload,
+    build_runtime_memory_context_payload,
+    persist_runtime_trace,
+)
 from trinity_core.schemas import (
     REPLY_CONTRACT_VERSION,
     AcceptedArtifactVersion,
@@ -23,15 +45,21 @@ from trinity_core.schemas import (
     CandidateRecord,
     CandidateState,
     CandidateType,
+    ContactProfile,
+    DocumentRecord,
     DraftOutcomeDisposition,
     DraftOutcomeEvent,
     EvidenceProvenance,
     EvidenceSourceRef,
     EvidenceSourceType,
     EvidenceUnit,
-    GoldenExample,
+    LoopAction,
+    MemoryEvent,
+    MemoryRecordFamily,
+    MemorySummary,
     PolicyResolutionCandidate,
     PolicyResolutionSummary,
+    PreparedDraftSet,
     RankedDraftSet,
     ReplyBehaviorPolicy,
     ReplyFeedbackDisposition,
@@ -40,9 +68,8 @@ from trinity_core.schemas import (
     RuntimeTraceExport,
     StageEvidenceAnchor,
     ThreadContextSnippet,
-    ThreadMessageRole,
-    ThreadMessageSnapshot,
     ThreadSnapshot,
+    ThreadState,
     TrainingBundle,
     TrainingBundleType,
 )
@@ -60,10 +87,14 @@ from trinity_core.workflow import (
     RefinerExecutionInput,
     apply_reply_feedback,
     build_frontier,
+    build_hitl_escalation,
+    decide_loop_action,
     execute_candidate_pipeline,
     frontier_score,
     ingest_evidence,
+    synthesize_consensus_decision,
 )
+from trinity_core.workflow.prepared_drafts import build_prepared_draft_set
 
 ARTIFACT_VERSION = "reply_ranker_policy.v0"
 ARTIFACT_KEY = "reply_ranker_policy"
@@ -106,14 +137,22 @@ class ReplyRuntime:
         self,
         store: RuntimeCycleStore | None = None,
         policy_store: ReplyPolicyStore | None = None,
+        memory_store: ReplyMemoryStore | None = None,
     ) -> None:
         self.store = store or RuntimeCycleStore()
         self.policy_store = policy_store or ReplyPolicyStore()
-        self.model_config = load_reply_model_config()
-        self.ollama_client = OllamaChatClient(
-            base_url=self.model_config.ollama_base_url,
-            timeout_seconds=self.model_config.timeout_seconds,
-        )
+        self.memory_store = memory_store or ReplyMemoryStore()
+        self.memory_resolver = ReplyMemoryResolver(self.memory_store)
+        self.model_config = load_model_config("reply")
+        self.model_provider = build_model_provider(self.model_config)
+
+    @property
+    def ollama_client(self) -> Any:
+        return self.model_provider
+
+    @ollama_client.setter
+    def ollama_client(self, value: Any) -> None:
+        self.model_provider = value
 
     def suggest(self, snapshot: ThreadSnapshot) -> RankedDraftSet:
         cycle_id = uuid4()
@@ -124,21 +163,40 @@ class ReplyRuntime:
         )
         active_policy_record = resolved_policy.accepted_policy
         active_policy = active_policy_record.policy if active_policy_record else None
+        memory_context = self.memory_resolver.resolve_for_snapshot(snapshot)
+        memory_profile = build_runtime_memory_profile(memory_context)
         evidence_units = self._build_evidence(snapshot)
         pipeline = execute_candidate_pipeline(
             GeneratorExecutionInput(
                 company_id=snapshot.company_id,
                 evidence_units=evidence_units,
-                strategic_context={
-                    "channel": snapshot.channel,
-                    "contact_handle": snapshot.contact_handle,
-                },
+                strategic_context=self._pipeline_strategic_context(
+                    snapshot,
+                    memory_context,
+                    memory_profile,
+                ),
+                memory_constraints=self._generator_memory_constraints(
+                    memory_context,
+                    memory_profile,
+                ),
                 topic_anchors=tuple(_topic_anchors(snapshot)),
                 freshness_reference=snapshot.requested_at,
             ),
             generator_runner=self._generator_runner(snapshot, active_policy),
             refiner_runner=self._refiner_runner(snapshot, active_policy),
             evaluator_runner=self._evaluator_runner(snapshot, active_policy),
+            strategic_context=self._pipeline_strategic_context(
+                snapshot,
+                memory_context,
+                memory_profile,
+            ),
+            feedback_memory=self._pipeline_feedback_memory(memory_context, memory_profile),
+            ranking_context=self._pipeline_ranking_context(memory_context, memory_profile),
+            strategic_policy=self._pipeline_strategic_policy(
+                active_policy,
+                memory_context,
+                memory_profile,
+            ),
             now=cycle_time,
         )
         frontier = build_frontier(pipeline.evaluated.records, limit=3)
@@ -146,6 +204,42 @@ class ReplyRuntime:
             pipeline.evaluated.records,
             frontier,
             limit=3,
+        )
+        consensus = synthesize_consensus_decision(
+            cycle_id=cycle_id,
+            adapter_name="reply",
+            majority_candidate=surfaced_frontier[0].candidate if surfaced_frontier else None,
+            frontier_entries=tuple(surfaced_frontier),
+            generated_candidates=pipeline.generated.records,
+            refined_candidates=pipeline.refined.records,
+            evaluated_candidates=pipeline.evaluated.records,
+            memory_factors=memory_context.selected_keys[:6],
+        )
+        loop_decision = decide_loop_action(
+            consensus,
+            loop_count=0,
+            max_loop_count=0,
+        )
+        hitl_escalation = (
+            build_hitl_escalation(
+                cycle_id=cycle_id,
+                adapter_name="reply",
+                company_id=snapshot.company_id,
+                majority_result_ref=(
+                    str(consensus.majority_candidate_id)
+                    if consensus.majority_candidate_id is not None
+                    else snapshot.thread_ref
+                ),
+                decision_target="reply_send_decision",
+                loop_decision=loop_decision,
+                evidence_anchors=_candidate_evidence_anchors(surfaced_frontier[0].candidate)
+                if surfaced_frontier
+                else (),
+                memory_factors=memory_context.selected_keys[:6],
+                created_at=cycle_time,
+            )
+            if loop_decision.action is LoopAction.ESCALATE
+            else None
         )
         artifact = _resolved_artifact_version(
             cycle_time,
@@ -163,8 +257,15 @@ class ReplyRuntime:
                     recipient_handle=snapshot.contact_handle,
                     channel=snapshot.channel,
                     rank=entry.rank,
-                    risk_flags=_risk_flags(entry.candidate, snapshot),
-                    delivery_eligible=entry.candidate.state is CandidateState.EVALUATED,
+                    risk_flags=_runtime_controlled_risk_flags(
+                        entry.candidate,
+                        snapshot,
+                        loop_decision=loop_decision,
+                    ),
+                    delivery_eligible=_delivery_eligible(
+                        entry.candidate,
+                        loop_decision=loop_decision,
+                    ),
                 )
                 for entry in surfaced_frontier
             ),
@@ -188,9 +289,21 @@ class ReplyRuntime:
             ),
             stage_evidence_anchors=_build_stage_evidence_anchors(evidence_units),
             model_routes=self._model_routes(),
+            runtime_memory_context=build_runtime_memory_context_payload(memory_context),
+            runtime_memory_profile=memory_profile.prompt_payload(),
+            runtime_loop_decision=build_runtime_loop_decision_payload(
+                consensus,
+                loop_decision,
+            ),
+            runtime_hitl_escalation=dataclass_payload(hitl_escalation)
+            if hitl_escalation is not None
+            else {},
         )
         self._persist_cycle(trace)
-        return replace(ranked, trace_ref=str(self.store.export_path(cycle_id)))
+        ranked_with_trace = replace(ranked, trace_ref=str(self.store.export_path(cycle_id)))
+        self._remember_thread_snapshot(snapshot)
+        self._remember_prepared_draft(snapshot, ranked_with_trace, generation_reason="suggest")
+        return ranked_with_trace
 
     def record_outcome(self, event: DraftOutcomeEvent) -> dict[str, Any]:
         payload = self.store.load_cycle(event.cycle_id, event.company_id)
@@ -210,6 +323,7 @@ class ReplyRuntime:
             payload["candidates"] = updated_candidates
         self.store.save_cycle(event.cycle_id, payload)
         export_path = self.store.save_export(event.cycle_id, payload)
+        self._remember_outcome_memory(event, payload)
         return {"status": "ok", "cycle_id": str(event.cycle_id), "trace_ref": str(export_path)}
 
     def export_trace(self, cycle_id: UUID) -> dict[str, Any]:
@@ -232,6 +346,169 @@ class ReplyRuntime:
             "bundle": dataclass_payload(bundle),
         }
 
+    def ingest_memory_event(self, event: MemoryEvent) -> dict[str, Any]:
+        self.memory_store.record_event(event)
+        if event.event_kind.value == "document_deleted":
+            document_ref = str(event.metadata.get("document_ref") or "").strip()
+            if document_ref:
+                self.memory_store.delete_document(event.company_id, document_ref)
+        if event.contact_handle:
+            self.memory_store.upsert_contact_profile(
+                ContactProfile(
+                    company_id=event.company_id,
+                    contact_handle=event.contact_handle,
+                    display_name=str(event.metadata.get("display_name") or "").strip() or None,
+                    summary=str(event.metadata.get("summary") or "").strip(),
+                    metadata=event.metadata,
+                    updated_at=event.occurred_at,
+                )
+            )
+        if event.thread_ref and event.channel and event.contact_handle:
+            self.memory_store.upsert_thread_state(
+                ThreadState(
+                    company_id=event.company_id,
+                    thread_ref=event.thread_ref,
+                    channel=event.channel,
+                    contact_handle=event.contact_handle,
+                    latest_inbound_text=event.content_text or "",
+                    last_event_at=event.occurred_at,
+                    metadata={
+                        "last_event_kind": event.event_kind.value,
+                        "source_ref": event.source_ref,
+                    },
+                )
+            )
+            self.memory_store.mark_thread_dirty(
+                event.company_id,
+                event.thread_ref,
+                reason=event.event_kind.value,
+            )
+        return {
+            "status": "ok",
+            "company_id": str(event.company_id),
+            "event_kind": event.event_kind.value,
+            "thread_ref": event.thread_ref,
+            "source_ref": event.source_ref,
+        }
+
+    def register_document(self, document: DocumentRecord) -> dict[str, Any]:
+        self.memory_store.register_document(document)
+        thread_ref = str(document.metadata.get("thread_ref") or "").strip()
+        if thread_ref:
+            self.memory_store.mark_thread_dirty(
+                document.company_id,
+                thread_ref,
+                reason="document_registered",
+            )
+        return {
+            "status": "ok",
+            "company_id": str(document.company_id),
+            "document_ref": document.document_ref,
+            "path": document.path,
+        }
+
+    def get_prepared_draft(
+        self,
+        *,
+        company_id: UUID | str,
+        thread_ref: str,
+    ) -> dict[str, Any]:
+        payload = self.memory_store.load_prepared_draft_payload(company_id, thread_ref)
+        if payload is None:
+            return {"status": "missing", "company_id": str(company_id), "thread_ref": thread_ref}
+        expires_at = _parse_datetime(payload["expires_at"])
+        stale = expires_at <= datetime.now(UTC)
+        return {
+            "status": "ok",
+            "company_id": str(company_id),
+            "thread_ref": thread_ref,
+            "stale": stale,
+            "prepared_draft_set": payload,
+        }
+
+    def refresh_prepared_draft(
+        self,
+        *,
+        company_id: UUID | str,
+        thread_ref: str,
+        generation_reason: str = "manual_refresh",
+        overwrite_mode: str = "if_stale_or_dirty",
+    ) -> dict[str, Any]:
+        existing_payload = self.memory_store.load_prepared_draft_payload(company_id, thread_ref)
+        dirty_payload = self.memory_store.load_dirty_thread_payload(company_id, thread_ref)
+        if overwrite_mode != "always":
+            if overwrite_mode != "if_stale_or_dirty":
+                raise ValueError(f"Unsupported overwrite_mode: {overwrite_mode}")
+            if existing_payload is not None:
+                expires_at = _parse_datetime(existing_payload["expires_at"])
+                stale = expires_at <= datetime.now(UTC)
+                if not stale and dirty_payload is None:
+                    return {
+                        "status": "skipped_fresh",
+                        "company_id": str(company_id),
+                        "thread_ref": thread_ref,
+                        "stale": False,
+                        "dirty": False,
+                        "overwrite_mode": overwrite_mode,
+                        "prepared_draft_set": existing_payload,
+                    }
+        snapshot_payload = self.memory_store.latest_snapshot_payload(company_id, thread_ref)
+        if snapshot_payload is None:
+            return {
+                "status": "missing_snapshot",
+                "company_id": str(company_id),
+                "thread_ref": thread_ref,
+            }
+        snapshot = replace(
+            adapter_thread_snapshot_from_payload(snapshot_payload),
+            requested_at=datetime.now(UTC),
+        )
+        ranked = self.suggest(snapshot)
+        prepared = self._remember_prepared_draft(
+            snapshot,
+            ranked,
+            generation_reason=generation_reason,
+        )
+        self.memory_store.clear_thread_dirty(company_id, thread_ref)
+        overwrite_reason = (
+            "forced_refresh"
+            if overwrite_mode == "always"
+            else "freshen_prepared_draft"
+        )
+        if dirty_payload is not None:
+            overwrite_reason = str(dirty_payload["reason"]).strip() or "dirty_thread"
+        elif existing_payload is None:
+            overwrite_reason = "missing_prepared_draft"
+        elif _parse_datetime(existing_payload["expires_at"]) <= datetime.now(UTC):
+            overwrite_reason = "stale_prepared_draft"
+        return {
+            "status": "ok",
+            "company_id": str(company_id),
+            "thread_ref": thread_ref,
+            "overwrite_mode": overwrite_mode,
+            "overwrite_reason": overwrite_reason,
+            "prepared_draft_set": dataclass_payload(prepared),
+        }
+
+    def inspect_prepared_draft_refresh(
+        self,
+        *,
+        company_id: UUID | str,
+        limit: int = 10,
+        stale_after_minutes: int = 15,
+    ) -> dict[str, Any]:
+        plan = self.memory_store.build_prepared_draft_refresh_plan(
+            company_id,
+            limit=limit,
+            stale_after=timedelta(minutes=stale_after_minutes),
+            now=datetime.now(UTC),
+        )
+        return {
+            "status": "ok",
+            "company_id": str(company_id),
+            "refresh_plan": dataclass_payload(plan),
+        }
+
     def _build_evidence(self, snapshot: ThreadSnapshot) -> tuple[Any, ...]:
         store = InMemoryEvidenceStore()
         accepted = []
@@ -242,9 +519,129 @@ class ReplyRuntime:
         return tuple(accepted)
 
     def _persist_cycle(self, trace: RuntimeTraceExport) -> None:
-        payload = dataclass_payload(trace)
-        self.store.save_cycle(trace.cycle_id, payload)
-        self.store.save_export(trace.cycle_id, payload)
+        persist_runtime_trace(self.store, trace)
+
+    def _generator_memory_constraints(
+        self,
+        memory_context: Any,
+        memory_profile: Any,
+    ) -> dict[str, str]:
+        return {
+            "retrieval_context_hash": memory_context.retrieval_context_hash,
+            "memory_record_count": str(len(memory_context.records)),
+            "selected_keys": ",".join(memory_context.selected_keys[:6]),
+            "preference_hints": " | ".join(memory_profile.preference_hints[:2]),
+            "anti_pattern_hints": " | ".join(memory_profile.anti_pattern_hints[:2]),
+            "core_memory_summary": memory_profile.core_summary,
+            "retrieval_summary": memory_profile.retrieval_summary,
+            "ranked_memory_lines": " | ".join(memory_profile.ranked_memory_lines[:2]),
+        }
+
+    def _pipeline_strategic_context(
+        self,
+        snapshot: ThreadSnapshot,
+        memory_context: Any,
+        memory_profile: Any,
+    ) -> dict[str, str]:
+        return {
+            "channel": snapshot.channel,
+            "contact_handle": snapshot.contact_handle,
+            "retrieval_context_hash": memory_context.retrieval_context_hash,
+            "memory_preferences": " | ".join(memory_profile.preference_hints[:2]),
+            "memory_successes": " | ".join(memory_profile.successful_pattern_hints[:2]),
+            "working_memory_summary": memory_profile.working_summary,
+            "ranked_memory_lines": " | ".join(memory_profile.ranked_memory_lines[:2]),
+        }
+
+    def _pipeline_feedback_memory(self, memory_context: Any, memory_profile: Any) -> dict[str, str]:
+        feedback_keys = tuple(
+            record.record_key
+            for record in memory_context.records
+            if str(record.family.value) in {"correction", "human_resolution", "disagreement"}
+        )
+        return {
+            "retrieval_context_hash": memory_context.retrieval_context_hash,
+            "feedback_record_count": str(len(feedback_keys)),
+            "feedback_keys": ",".join(feedback_keys[:6]),
+            "correction_hints": " | ".join(memory_profile.correction_hints[:2]),
+            "disagreement_hints": " | ".join(memory_profile.disagreement_hints[:2]),
+            "core_memory_summary": memory_profile.core_summary,
+            "ranked_memory_lines": " | ".join(memory_profile.ranked_memory_lines[:2]),
+        }
+
+    def _pipeline_ranking_context(self, memory_context: Any, memory_profile: Any) -> dict[str, str]:
+        return {
+            "retrieval_context_hash": memory_context.retrieval_context_hash,
+            "memory_record_count": str(len(memory_context.records)),
+            "selected_keys": ",".join(memory_context.selected_keys[:6]),
+            "anti_pattern_hints": " | ".join(memory_profile.anti_pattern_hints[:2]),
+            "successful_pattern_hints": " | ".join(memory_profile.successful_pattern_hints[:2]),
+            "archival_memory_summary": memory_profile.archival_summary,
+            "ranked_memory_lines": " | ".join(memory_profile.ranked_memory_lines[:2]),
+        }
+
+    def _pipeline_strategic_policy(
+        self,
+        active_policy: ReplyBehaviorPolicy | None,
+        memory_context: Any,
+        memory_profile: Any,
+    ) -> dict[str, str]:
+        return {
+            "policy_version": active_policy.version if active_policy is not None else "",
+            "retrieval_context_hash": memory_context.retrieval_context_hash,
+            "memory_record_count": str(len(memory_context.records)),
+            "memory_preference_count": str(len(memory_profile.preference_hints)),
+            "retrieval_summary": memory_profile.retrieval_summary,
+            "ranked_memory_lines": " | ".join(memory_profile.ranked_memory_lines[:2]),
+        }
+
+    def _remember_thread_snapshot(self, snapshot: ThreadSnapshot) -> None:
+        self.memory_store.upsert_contact_profile(
+            ContactProfile(
+                company_id=snapshot.company_id,
+                contact_handle=snapshot.contact_handle,
+                summary="",
+                metadata={"channel": snapshot.channel},
+                updated_at=snapshot.requested_at,
+            )
+        )
+        self.memory_store.upsert_thread_state(
+            ThreadState(
+                company_id=snapshot.company_id,
+                thread_ref=snapshot.thread_ref,
+                channel=snapshot.channel,
+                contact_handle=snapshot.contact_handle,
+                latest_inbound_text=snapshot.latest_inbound_text,
+                last_event_at=snapshot.requested_at,
+                last_snapshot_at=snapshot.requested_at,
+                metadata={"message_count": len(snapshot.messages)},
+            ),
+            snapshot=snapshot,
+        )
+
+    def _remember_prepared_draft(
+        self,
+        snapshot: ThreadSnapshot,
+        ranked: RankedDraftSet,
+        *,
+        generation_reason: str,
+    ) -> PreparedDraftSet:
+        prepared = build_prepared_draft_set(
+            snapshot,
+            ranked,
+            generation_reason=generation_reason,
+            now=datetime.now(UTC),
+        )
+        self.memory_store.save_prepared_draft(prepared)
+        return prepared
+
+    def _remember_outcome_memory(
+        self,
+        event: DraftOutcomeEvent,
+        payload: dict[str, Any],
+    ) -> None:
+        for summary in _outcome_memory_summaries(event, payload):
+            self.memory_store.save_summary(summary)
 
     def _generator_runner(
         self,
@@ -431,7 +828,7 @@ class ReplyRuntime:
         def runner(stage_input: GeneratorExecutionInput):
             try:
                 prompt = _build_generator_prompt(snapshot, stage_input, active_policy)
-                payload = self.ollama_client.chat_json(
+                payload = self.model_provider.chat_json(
                     route=self.model_config.generator,
                     system_prompt=GENERATOR_SYSTEM_PROMPT,
                     user_prompt=prompt,
@@ -489,7 +886,7 @@ class ReplyRuntime:
                         candidate,
                         active_policy,
                     )
-                    payload = self.ollama_client.chat_json(
+                    payload = self.model_provider.chat_json(
                         route=self.model_config.refiner,
                         system_prompt=REFINER_SYSTEM_PROMPT,
                         user_prompt=prompt,
@@ -539,7 +936,7 @@ class ReplyRuntime:
         def runner(stage_input: EvaluatorExecutionInput):
             try:
                 prompt = _build_evaluator_prompt(snapshot, stage_input, active_policy)
-                payload = self.ollama_client.chat_json(
+                payload = self.model_provider.chat_json(
                     route=self.model_config.evaluator,
                     system_prompt=EVALUATOR_SYSTEM_PROMPT,
                     user_prompt=prompt,
@@ -614,59 +1011,19 @@ class ReplyRuntime:
 
 
 def thread_snapshot_from_payload(payload: dict[str, Any]) -> ThreadSnapshot:
-    return ThreadSnapshot(
-        company_id=UUID(payload["company_id"]),
-        thread_ref=str(payload["thread_ref"]),
-        channel=str(payload["channel"]),
-        contact_handle=str(payload["contact_handle"]),
-        latest_inbound_text=str(payload["latest_inbound_text"]),
-        requested_at=_parse_datetime(payload["requested_at"]),
-        messages=tuple(
-            ThreadMessageSnapshot(
-                message_id=str(item["message_id"]),
-                role=ThreadMessageRole(str(item["role"])),
-                text=str(item["text"]),
-                occurred_at=_parse_datetime(item["occurred_at"]),
-                channel=str(item["channel"]),
-                source=str(item["source"]),
-                handle=str(item["handle"]),
-            )
-            for item in payload.get("messages", [])
-        ),
-        context_snippets=tuple(
-            ThreadContextSnippet(
-                source=str(item["source"]),
-                path=str(item["path"]),
-                text=str(item["text"]),
-            )
-            for item in payload.get("context_snippets", [])
-        ),
-        golden_examples=tuple(
-            GoldenExample(path=str(item["path"]), text=str(item["text"]))
-            for item in payload.get("golden_examples", [])
-        ),
-        metadata={str(key): str(value) for key, value in payload.get("metadata", {}).items()},
-    )
+    return adapter_thread_snapshot_from_payload(payload)
 
 
 def outcome_event_from_payload(payload: dict[str, Any]) -> DraftOutcomeEvent:
-    return DraftOutcomeEvent(
-        company_id=UUID(payload["company_id"]),
-        cycle_id=UUID(payload["cycle_id"]),
-        thread_ref=str(payload["thread_ref"]),
-        channel=str(payload["channel"]),
-        disposition=DraftOutcomeDisposition(str(payload["disposition"])),
-        occurred_at=_parse_datetime(payload["occurred_at"]),
-        candidate_id=UUID(payload["candidate_id"]) if payload.get("candidate_id") else None,
-        original_draft_text=payload.get("original_draft_text"),
-        final_text=payload.get("final_text"),
-        edit_distance=float(payload["edit_distance"])
-        if payload.get("edit_distance") is not None
-        else None,
-        latency_ms=int(payload["latency_ms"]) if payload.get("latency_ms") is not None else None,
-        send_result=payload.get("send_result"),
-        notes=payload.get("notes"),
-    )
+    return adapter_outcome_event_from_payload(payload)
+
+
+def memory_event_from_payload(payload: dict[str, Any]) -> MemoryEvent:
+    return adapter_memory_event_from_payload(payload)
+
+
+def document_record_from_payload(payload: dict[str, Any]) -> DocumentRecord:
+    return adapter_document_record_from_payload(payload)
 
 
 def training_bundle_type_from_payload(value: str) -> TrainingBundleType:
@@ -734,6 +1091,14 @@ def training_bundle_from_payload(
             _derived_filtered_negative_candidates(payload),
         )
     )
+    runtime_loop_action = str(
+        payload.get("runtime_loop_decision", {}).get("loop_decision", {}).get("action") or ""
+    )
+    runtime_hitl = payload.get("runtime_hitl_escalation") or {}
+    runtime_minority = (
+        payload.get("runtime_loop_decision", {}).get("consensus", {}).get("minority_report")
+        or {}
+    )
     return TrainingBundle(
         bundle_id=TrainingBundle.build_bundle_id(cycle_id=cycle_id, bundle_type=bundle_type),
         bundle_type=bundle_type,
@@ -764,6 +1129,10 @@ def training_bundle_from_payload(
             "company_id": str(payload["thread_snapshot"]["company_id"]),
             "trace_ref": str(payload["ranked_draft_set"].get("trace_ref") or ""),
             "channel": ranked_draft_set.channel,
+            "runtime_loop_action": runtime_loop_action,
+            "had_hitl_escalation": "true" if runtime_hitl else "false",
+            "hitl_decision_target": str(runtime_hitl.get("decision_target") or ""),
+            "had_minority_report": "true" if runtime_minority else "false",
         },
         contract_version=str(payload.get("contract_version") or REPLY_CONTRACT_VERSION),
     )
@@ -1133,6 +1502,8 @@ def _build_generator_prompt(
         ],
         "context_snippets": [snippet.text for snippet in snapshot.context_snippets[:6]],
         "golden_examples": [example.text for example in snapshot.golden_examples[:3]],
+        "memory_constraints": dict(stage_input.memory_constraints),
+        "strategic_context": dict(stage_input.strategic_context),
         "active_policy": dataclass_payload(active_policy) if active_policy is not None else None,
     }
     return json.dumps(payload, ensure_ascii=True, indent=2)
@@ -1165,6 +1536,8 @@ def _build_refiner_prompt(
         ],
         "context_snippets": [snippet.text for snippet in snapshot.context_snippets[:4]],
         "golden_examples": [example.text for example in snapshot.golden_examples[:2]],
+        "feedback_memory": dict(stage_input.feedback_memory),
+        "ranking_context": dict(stage_input.ranking_context),
         "active_policy": dataclass_payload(active_policy) if active_policy is not None else None,
     }
     return json.dumps(payload, ensure_ascii=True, indent=2)
@@ -1198,6 +1571,9 @@ def _build_evaluator_prompt(
             }
             for candidate in stage_input.refined_candidates
         ],
+        "feedback_memory": dict(stage_input.feedback_memory),
+        "ranking_context": dict(stage_input.ranking_context),
+        "strategic_policy": dict(stage_input.strategic_policy),
         "active_policy": dataclass_payload(active_policy) if active_policy is not None else None,
     }
     return json.dumps(payload, ensure_ascii=True, indent=2)
@@ -1214,6 +1590,187 @@ def _risk_flags(candidate: CandidateRecord, snapshot: ThreadSnapshot) -> tuple[s
     if candidate.state is not CandidateState.EVALUATED:
         flags.append("needs_operator_review")
     return tuple(flags)
+
+
+def _runtime_controlled_risk_flags(
+    candidate: CandidateRecord,
+    snapshot: ThreadSnapshot,
+    *,
+    loop_decision: Any,
+) -> tuple[str, ...]:
+    flags = list(_risk_flags(candidate, snapshot))
+    if loop_decision.minority_report is not None:
+        flags.append("minority_report_present")
+    if loop_decision.confidence_bundle.combined_confidence < 0.6:
+        flags.append("low_confidence")
+    if loop_decision.action is LoopAction.REWORK:
+        flags.append("runtime_rework_required")
+    if loop_decision.action is LoopAction.ESCALATE:
+        flags.append("human_review_required")
+    return tuple(dict.fromkeys(flags))
+
+
+def _delivery_eligible(candidate: CandidateRecord, *, loop_decision: Any) -> bool:
+    if candidate.state is not CandidateState.EVALUATED:
+        return False
+    return loop_decision.action is LoopAction.ACCEPT
+
+
+def _candidate_evidence_anchors(candidate: CandidateRecord) -> tuple[str, ...]:
+    return tuple(str(evidence_id) for evidence_id in candidate.lineage.source_evidence_ids)
+
+
+def _outcome_memory_summaries(
+    event: DraftOutcomeEvent,
+    payload: dict[str, Any],
+) -> tuple[MemorySummary, ...]:
+    updated_at = event.occurred_at
+    company_scope = f"company:{event.company_id}"
+    human_scope = f"human:thread:{event.thread_ref}"
+    cycle_key = str(event.cycle_id).replace("-", "")
+    loop_action = str(
+        payload.get("runtime_loop_decision", {}).get("loop_decision", {}).get("action") or ""
+    )
+    summaries: list[MemorySummary] = [
+        MemorySummary(
+            company_id=event.company_id,
+            summary_key=f"human_resolution_{cycle_key}",
+            scope_ref=human_scope,
+            content=_human_resolution_summary_text(event, loop_action=loop_action),
+            updated_at=updated_at,
+            metadata={
+                "family": MemoryRecordFamily.HUMAN_RESOLUTION.value,
+                "cycle_id": str(event.cycle_id),
+                "candidate_id": str(event.candidate_id or ""),
+                "disposition": event.disposition.value,
+                "loop_action": loop_action,
+                "channel": event.channel,
+            },
+        )
+    ]
+    family = _outcome_memory_family(event.disposition)
+    if family is not None:
+        summaries.append(
+            MemorySummary(
+                company_id=event.company_id,
+                summary_key=f"{family.value}_{cycle_key}",
+                scope_ref=company_scope,
+                content=_family_summary_text(event, family=family),
+                updated_at=updated_at,
+                metadata={
+                    "family": family.value,
+                    "cycle_id": str(event.cycle_id),
+                    "candidate_id": str(event.candidate_id or ""),
+                    "disposition": event.disposition.value,
+                    "channel": event.channel,
+                },
+            )
+        )
+    minority_report = (
+        payload.get("runtime_loop_decision", {}).get("consensus", {}).get("minority_report")
+    )
+    if minority_report:
+        summaries.append(
+            MemorySummary(
+                company_id=event.company_id,
+                summary_key=f"disagreement_{cycle_key}",
+                scope_ref=company_scope,
+                content=_disagreement_summary_text(event, minority_report=minority_report),
+                updated_at=updated_at,
+                metadata={
+                    "family": MemoryRecordFamily.DISAGREEMENT.value,
+                    "cycle_id": str(event.cycle_id),
+                    "candidate_id": str(event.candidate_id or ""),
+                    "disposition": event.disposition.value,
+                    "channel": event.channel,
+                    "minority_result_ref": str(
+                        minority_report.get("minority_result_ref") or ""
+                    ),
+                    "dissent_source": str(minority_report.get("dissent_source") or ""),
+                },
+            )
+        )
+    return tuple(summaries)
+
+
+def _outcome_memory_family(
+    disposition: DraftOutcomeDisposition,
+) -> MemoryRecordFamily | None:
+    if disposition in {
+        DraftOutcomeDisposition.SENT_AS_IS,
+        DraftOutcomeDisposition.SELECTED,
+    }:
+        return MemoryRecordFamily.SUCCESSFUL_PATTERN
+    if disposition in {
+        DraftOutcomeDisposition.EDITED_THEN_SENT,
+        DraftOutcomeDisposition.MANUAL_REPLACEMENT,
+    }:
+        return MemoryRecordFamily.CORRECTION
+    if disposition in {
+        DraftOutcomeDisposition.REJECTED,
+        DraftOutcomeDisposition.IGNORED,
+        DraftOutcomeDisposition.REWORK_REQUESTED,
+    }:
+        return MemoryRecordFamily.ANTI_PATTERN
+    return None
+
+
+def _human_resolution_summary_text(
+    event: DraftOutcomeEvent,
+    *,
+    loop_action: str,
+) -> str:
+    final_text = (event.final_text or event.original_draft_text or "").strip()
+    final_text = " ".join(final_text.split())
+    prefix = (
+        f"Human resolved reply cycle {event.cycle_id} as {event.disposition.value}"
+        f" on {event.channel}"
+    )
+    if loop_action:
+        prefix += f" after runtime action {loop_action}"
+    if final_text:
+        return f"{prefix}: {final_text[:180]}"
+    return prefix
+
+
+def _family_summary_text(
+    event: DraftOutcomeEvent,
+    *,
+    family: MemoryRecordFamily,
+) -> str:
+    original_text = " ".join((event.original_draft_text or "").split())
+    final_text = " ".join((event.final_text or "").split())
+    if family is MemoryRecordFamily.SUCCESSFUL_PATTERN:
+        return (
+            f"Reply outcome {event.disposition.value} succeeded on {event.channel}: "
+            f"{final_text[:180] or original_text[:180]}"
+        )
+    if family is MemoryRecordFamily.CORRECTION:
+        return (
+            f"Human corrected reply before send on {event.channel}. "
+            f"Original: {original_text[:120]}. Final: {final_text[:120]}."
+        )
+    return (
+        f"Avoid reply pattern that led to {event.disposition.value} on {event.channel}: "
+        f"{original_text[:180]}"
+    )
+
+
+def _disagreement_summary_text(
+    event: DraftOutcomeEvent,
+    *,
+    minority_report: dict[str, Any],
+) -> str:
+    reason = str(minority_report.get("dissent_reason") or "").strip()
+    if reason:
+        return (
+            f"Runtime disagreement persisted for cycle {event.cycle_id} and human resolved it "
+            f"with {event.disposition.value}: {reason[:180]}"
+        )
+    return (
+        f"Runtime disagreement persisted for cycle {event.cycle_id} and human resolved it "
+        f"with {event.disposition.value}."
+    )
 
 
 def _normalize_llm_text(value: Any) -> str:

@@ -187,6 +187,15 @@ class AcceptedArtifactRegistry:
             promoted_at=action_time,
             previous_version=str(current_pointer["artifact"]["version"]),
             reason=reason,
+            contract_version=current_pointer.get("contract_version"),
+            scope_kind=current_pointer.get("scope_kind"),
+            scope_value=current_pointer.get("scope_value"),
+            source_train_project_key=current_pointer.get("source_train_project_key"),
+            source_train_run_id=current_pointer.get("source_train_run_id"),
+            source_review_decision_id=current_pointer.get("source_review_decision_id"),
+            acceptance_mode=current_pointer.get("acceptance_mode"),
+            holdout_bundle_count=int(current_pointer.get("holdout_bundle_count") or 0),
+            skeptical_notes=tuple(current_pointer.get("skeptical_notes") or ()),
         )
         self._write_transition(transition)
         self._write_current_pointer(transition)

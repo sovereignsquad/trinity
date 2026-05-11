@@ -1,31 +1,51 @@
 # {trinity}
 
-`{trinity}` is a local-first candidate runtime with product adapters.
+`{trinity}` is a local-first reasoning runtime with product adapters, active memory, and provider-neutral model routing.
 
-It is the runtime layer that turns normalized evidence into ranked, decision-ready candidates. It is not the product shell, and it is not the offline optimizer.
+It is the runtime layer that turns normalized evidence plus scoped memory into ranked, decision-ready outputs. It is not the product shell, and it is not the offline optimizer.
 
 Current system split:
 
 - `{trinity}` owns runtime workflow, ranking, trace export, training-bundle export, and accepted-artifact application
+- `{trinity}` owns live memory retrieval, disagreement handling, bounded rework loops, and Human-in-the-Loop escalation contracts
 - product repositories own ingestion, operator workflow, transport rules, approval semantics, and send execution
 - `{train}` owns offline bounded optimization of exported `{trinity}` artifacts
 
 ## Current State
 
-This repository now exposes a generic runtime seam with adapter-aware storage and CLI routing.
+This repository now exposes a generic runtime seam with adapter-aware storage, provider-neutral model routing, and generic CLI routing.
 
 Implemented today:
 
 - reusable workflow core under [core/trinity_core/workflow](/Users/Shared/Projects/trinity/core/trinity_core/workflow)
 - adapter helpers under [core/trinity_core/adapters](/Users/Shared/Projects/trinity/core/trinity_core/adapters)
+- provider-neutral model adapters under [core/trinity_core/adapters/model](/Users/Shared/Projects/trinity/core/trinity_core/adapters/model)
 - generic runtime facade in [core/trinity_core/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/runtime.py)
 - adapter-scoped storage helpers in [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
 - generic CLI surface in [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
 - first production adapter contract for `{reply}`
 
+Current restoration focus:
+
+- keep `{reply}` stable as the first production embedding
+- restore `{trinity}` as the proper core system around active memory, minority reports, bounded loop control, and HiTL
+- create a clean reasoning seam for `{spot}` without leaking Reply draft semantics
+
 Implemented adapter support:
 
 - `reply`
+
+Implemented model-provider support:
+
+- `deterministic`
+- `ollama`
+- `mistral-cli`
+
+Current `mistral-cli` operating note:
+
+- the initial provider implementation targets the `vibe` programmatic CLI path
+- route model names remain explicit in Trinity config and trace provenance
+- for this first tranche, route model names are advisory rather than enforced by the CLI itself
 
 Compatibility guarantee:
 
@@ -40,6 +60,7 @@ trinity/
   core/
     trinity_core/
       adapters/
+        model/
       ops/
       runtime.py
       schemas/
@@ -52,7 +73,8 @@ Primary responsibility split:
 
 - `workflow/`: reusable stage execution and frontier logic
 - `schemas/`: canonical runtime contracts
-- `adapters/`: product-specific adapter declarations and future adapter packages
+- `adapters/`: product adapter declarations plus provider-neutral model adapters
+- `memory/`: runtime-owned live memory, retrieval, and lesson handling
 - `ops/`: local storage, policy lifecycle, trace export, and fixture tooling
 
 ## CLI
@@ -73,6 +95,26 @@ Preferred generic commands:
 - `runtime-status --adapter reply`
 - `show-config --adapter reply`
 - `write-config --adapter reply`
+- `get-prepared-draft --adapter reply --company-id <company> --thread-ref <thread>`
+- `refresh-prepared-draft --adapter reply --company-id <company> --thread-ref <thread> [--reason <reason>] [--overwrite-mode <mode>]`
+- `plan-prepared-draft-refresh --adapter reply --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
+- `schedule-prepared-draft-refresh --adapter reply --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
+- `compare-providers --adapter reply`
+- `curate-eval-dataset --adapter reply --dataset-name <name> --cycle-id <uuid> --selection-reason <reason>`
+- `replay-eval-dataset --dataset-file <path>`
+- `make-control-job --adapter reply`
+- `run-control-job --job-file <path>`
+- `control-run-status --adapter reply --run-id <uuid>`
+- `make-gobii-workflow --job-file <path> --schedule <expr>`
+- `register-gobii-workflow --bundle-file <path> [options]`
+- `make-gobii-profile-enrichment --adapter reply --input-file <path> [options]`
+- `submit-gobii-profile-enrichment --adapter reply --bundle-file <path> [options]`
+- `submit-gobii-task --adapter reply --prompt <text> [options]`
+- `gobii-task-result --adapter reply --task-id <id> [options]`
+- `list-gobii-tasks --adapter reply [options]`
+- `cancel-gobii-task --adapter reply --task-id <id> [options]`
+- `normalize-gobii-task --adapter reply --input-file <path>`
+- `normalize-gobii-profile-enrichment --adapter reply --bundle-file <path>`
 
 Compatibility aliases:
 
@@ -123,6 +165,10 @@ Reply compatibility behavior:
 
 ## Development
 
+Local install and dependency setup:
+
+- [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+
 Bootstrap:
 
 ```bash
@@ -137,6 +183,13 @@ uv run ruff check .
 uv run pytest
 ```
 
+Native shell build:
+
+```bash
+cd /Users/Shared/Projects/trinity/apps/macos
+swift build
+```
+
 ## Adapter Guidance
 
 When adding a new product adapter:
@@ -147,18 +200,39 @@ When adding a new product adapter:
 4. expose the adapter through the generic CLI before adding product-specific aliases
 5. prove the abstraction with deterministic tests and fixture replay
 
+When adding a new model provider:
+
+1. keep workflow stages dependent on role capabilities, not provider request formats
+2. put transport, process, and inventory behavior under `core/trinity_core/adapters/model`
+3. keep provider-specific configuration explicit in model config and runtime status output
+4. preserve deterministic fallback as a valid operational mode
+5. prove the provider through adapter-agnostic tests before adding more providers
+
 Do not:
 
 - move transport or approval semantics into runtime core
 - broaden core schemas with product-only fields unless at least two adapters need them
+- leak one product's semantics into another through hidden memory reuse
 - use repository-local runtime data as the default storage path
 
 ## Read First
 
 - [docs/STATUS.md](/Users/Shared/Projects/trinity/docs/STATUS.md)
+- [docs/TRINITY_RESTORATION_PLAN.md](/Users/Shared/Projects/trinity/docs/TRINITY_RESTORATION_PLAN.md)
+- [docs/TRINITY_CORE_LOOP.md](/Users/Shared/Projects/trinity/docs/TRINITY_CORE_LOOP.md)
+- [docs/MEMORY_ARCHITECTURE.md](/Users/Shared/Projects/trinity/docs/MEMORY_ARCHITECTURE.md)
+- [docs/MINORITY_REPORT_CONTRACT.md](/Users/Shared/Projects/trinity/docs/MINORITY_REPORT_CONTRACT.md)
+- [docs/HITL_ESCALATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/HITL_ESCALATION_CONTRACT.md)
 - [docs/REPOSITORY_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPOSITORY_CONTRACT.md)
+- [docs/PROVIDER_COMPARISON_HARNESS.md](/Users/Shared/Projects/trinity/docs/PROVIDER_COMPARISON_HARNESS.md)
+- [docs/PRODUCTION_TRACE_EVAL_DATASETS.md](/Users/Shared/Projects/trinity/docs/PRODUCTION_TRACE_EVAL_DATASETS.md)
+- [docs/CONTROL_PLANE_SEAM.md](/Users/Shared/Projects/trinity/docs/CONTROL_PLANE_SEAM.md)
+- [docs/GOBII_RECURRING_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_RECURRING_WORKFLOW.md)
+- [docs/GOBII_NORMALIZATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/GOBII_NORMALIZATION_CONTRACT.md)
+- [docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md)
 - [docs/TRINITY_OVERVIEW.md](/Users/Shared/Projects/trinity/docs/TRINITY_OVERVIEW.md)
 - [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
+- [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
 - [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
 - [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
 - [docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md)

@@ -8,7 +8,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from trinity_core.adapters import REPLY_ADAPTER_NAME, normalize_adapter_name
+from trinity_core.adapters import (
+    REPLY_ADAPTER_NAME,
+    normalize_adapter_name,
+    require_supported_adapter,
+)
 from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 
 DEFAULT_TRINITY_GENERATOR_MODEL = "granite4:350m"
@@ -25,30 +29,65 @@ class TrinityRoleRoute:
 
 
 @dataclass(frozen=True)
-class TrinityReplyModelConfig:
+class TrinityModelConfig:
     provider: str
     ollama_base_url: str
     timeout_seconds: float
     generator: TrinityRoleRoute
     refiner: TrinityRoleRoute
     evaluator: TrinityRoleRoute
+    mistral_cli_executable: str = "vibe"
+    mistral_cli_args: tuple[str, ...] = ()
+    mistral_cli_mode: str = "vibe"
+    mistral_cli_model_binding: str = "advisory"
 
     @property
     def llm_enabled(self) -> bool:
-        return self.provider == "ollama"
+        return self.provider != "deterministic"
 
 
-def load_reply_model_config() -> TrinityReplyModelConfig:
-    file_payload = _load_config_file(REPLY_ADAPTER_NAME)
+TrinityReplyModelConfig = TrinityModelConfig
+
+
+def load_reply_model_config() -> TrinityModelConfig:
+    return load_model_config(REPLY_ADAPTER_NAME)
+
+
+def load_model_config(adapter_name: str) -> TrinityModelConfig:
+    file_payload = _load_config_file(normalize_adapter_name(adapter_name))
     provider = _resolve_value(
         "TRINITY_MODEL_PROVIDER",
         file_payload,
         "provider",
         "deterministic",
     ).lower()
-    return TrinityReplyModelConfig(
+    return TrinityModelConfig(
         provider=provider,
         ollama_base_url=_resolve_ollama_base_url(file_payload),
+        mistral_cli_executable=_resolve_value(
+            "TRINITY_MISTRAL_CLI_EXECUTABLE",
+            file_payload,
+            "mistral_cli_executable",
+            "vibe",
+        ),
+        mistral_cli_args=_resolve_string_tuple(
+            "TRINITY_MISTRAL_CLI_ARGS",
+            file_payload,
+            "mistral_cli_args",
+            (),
+        ),
+        mistral_cli_mode=_resolve_value(
+            "TRINITY_MISTRAL_CLI_MODE",
+            file_payload,
+            "mistral_cli_mode",
+            "vibe",
+        ).lower(),
+        mistral_cli_model_binding=_resolve_value(
+            "TRINITY_MISTRAL_CLI_MODEL_BINDING",
+            file_payload,
+            "mistral_cli_model_binding",
+            "advisory",
+        ).lower(),
         timeout_seconds=_resolve_float(
             "TRINITY_LLM_TIMEOUT_SECONDS",
             file_payload,
@@ -144,27 +183,23 @@ def config_path_for_adapter(adapter_name: str) -> Path:
     return adapter_paths.root_dir / "model_config.json"
 
 
-def save_reply_model_config(config: TrinityReplyModelConfig) -> Path:
+def save_reply_model_config(config: TrinityModelConfig) -> Path:
     path = config_path_for_adapter(REPLY_ADAPTER_NAME)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(config), indent=2, sort_keys=True), encoding="utf-8")
     return path
 
 
-def load_model_config_for_adapter(adapter_name: str) -> TrinityReplyModelConfig:
-    normalized_adapter = normalize_adapter_name(adapter_name)
-    if normalized_adapter != REPLY_ADAPTER_NAME:
-        raise ValueError(f"Unsupported model configuration adapter: {normalized_adapter}.")
-    return load_reply_model_config()
+def load_model_config_for_adapter(adapter_name: str) -> TrinityModelConfig:
+    normalized_adapter = require_supported_adapter(adapter_name)
+    return load_model_config(normalized_adapter)
 
 
 def save_model_config_for_adapter(
     adapter_name: str,
-    config: TrinityReplyModelConfig,
+    config: TrinityModelConfig,
 ) -> Path:
-    normalized_adapter = normalize_adapter_name(adapter_name)
-    if normalized_adapter != REPLY_ADAPTER_NAME:
-        raise ValueError(f"Unsupported model configuration adapter: {normalized_adapter}.")
+    normalized_adapter = require_supported_adapter(adapter_name)
     path = config_path_for_adapter(normalized_adapter)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(config), indent=2, sort_keys=True), encoding="utf-8")
@@ -197,6 +232,24 @@ def _resolve_ollama_base_url(file_payload: dict[str, Any]) -> str:
 def _resolve_value(env_key: str, file_payload: dict[str, Any], file_key: str, default: str) -> str:
     raw = str(os.environ.get(env_key, file_payload.get(file_key, default)) or "").strip()
     return raw or default
+
+
+def _resolve_string_tuple(
+    env_key: str,
+    file_payload: dict[str, Any],
+    file_key: str,
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    raw = os.environ.get(env_key)
+    if raw is not None:
+        return tuple(part for part in str(raw).split() if part)
+
+    file_value = file_payload.get(file_key, default)
+    if isinstance(file_value, (list, tuple)):
+        return tuple(str(item).strip() for item in file_value if str(item).strip())
+    if isinstance(file_value, str):
+        return tuple(part for part in file_value.split() if part)
+    return default
 
 
 def _resolve_float(

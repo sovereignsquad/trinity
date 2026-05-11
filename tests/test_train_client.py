@@ -6,7 +6,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from trinity_core import cli as trinity_cli
-from trinity_core.ops.train_client import propose_reply_policy_via_train_api
+from trinity_core.ops.train_client import (
+    propose_reply_policy_via_train_api,
+    propose_spot_review_policy_via_train_api,
+)
 
 
 class _FakeResponse:
@@ -56,6 +59,47 @@ def test_propose_reply_policy_via_train_api_posts_expected_payload(monkeypatch) 
         "bundle_files": ["/tmp/bundle.json"],
         "proposal_output_path": "/tmp/proposal.json",
         "eval_output_path": "/tmp/eval.json",
+    }
+    assert result["bundle_count"] == 1
+
+
+def test_propose_spot_review_policy_via_train_api_posts_expected_payload(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(request):  # type: ignore[no-untyped-def]
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse(
+            {
+                "learner_kind": "review-policy",
+                "bundle_count": 1,
+                "proposal": {"artifact_key": "spot_review_policy"},
+                "eval_report": {"summary": "ok"},
+                "comparison_report": {"summary": "ok"},
+                "proposal_path": "/tmp/proposal.json",
+                "eval_output_path": "/tmp/eval.json",
+                "comparison_output_path": "/tmp/comparison.json",
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    result = propose_spot_review_policy_via_train_api(
+        learner_kind="review-policy",
+        bundle_files=["/tmp/spot-bundle.json"],
+        train_api_base_url="http://127.0.0.1:8014",
+        proposal_output_path="/tmp/proposal.json",
+        eval_output_path="/tmp/eval.json",
+        comparison_output_path="/tmp/comparison.json",
+    )
+
+    assert captured["url"] == "http://127.0.0.1:8014/v1/trinity/spot/policies/propose"
+    assert captured["payload"] == {
+        "learner_kind": "review-policy",
+        "bundle_files": ["/tmp/spot-bundle.json"],
+        "proposal_output_path": "/tmp/proposal.json",
+        "eval_output_path": "/tmp/eval.json",
+        "comparison_output_path": "/tmp/comparison.json",
     }
     assert result["bundle_count"] == 1
 

@@ -208,6 +208,32 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
         anchor["anchor_kind"] == "canonical_input_reinjected"
         for anchor in payload["stage_evidence_anchors"]
     )
+    assert payload["runtime_memory_context"]["retrieval_context_hash"]
+    assert payload["runtime_memory_context"]["record_count"] >= 0
+    assert "tier_counts" in payload["runtime_memory_context"]
+    assert isinstance(payload["runtime_memory_context"]["top_records"], list)
+    assert "runtime_memory_profile" in payload
+    assert isinstance(payload["runtime_memory_profile"]["preference_hints"], list)
+    assert isinstance(payload["runtime_memory_profile"]["anti_pattern_hints"], list)
+    assert isinstance(payload["runtime_memory_profile"]["ranked_memory_lines"], list)
+    assert (
+        payload["runtime_loop_decision"]["consensus"]["confidence_bundle"][
+            "combined_confidence"
+        ]
+        >= 0.0
+    )
+    assert payload["runtime_loop_decision"]["loop_decision"]["action"] in {
+        "accept",
+        "rework",
+        "escalate",
+    }
+    summaries = runtime.memory_store.list_memory_summaries(
+        snapshot.company_id,
+        scope_refs=(f"company:{snapshot.company_id}", f"human:thread:{snapshot.thread_ref}"),
+        limit=10,
+    )
+    assert any(summary.metadata.get("family") == "successful_pattern" for summary in summaries)
+    assert any(summary.metadata.get("family") == "human_resolution" for summary in summaries)
 
 
 def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path) -> None:
@@ -624,3 +650,163 @@ def test_reply_runtime_backfills_three_distinct_drafts_when_llm_duplicates(tmp_p
 
     assert len(ranked.drafts) == 3
     assert len({draft.draft_text for draft in ranked.drafts}) == 3
+
+
+def test_reply_runtime_escalates_low_confidence_drafts_to_human_review(tmp_path: Path) -> None:
+    runtime = ReplyRuntime(
+        store=RuntimeCycleStore(
+            RuntimeCyclePaths(
+                adapter_name="reply",
+                root_dir=tmp_path,
+                cycles_dir=tmp_path / "cycles",
+                exports_dir=tmp_path / "exports",
+            )
+        )
+    )
+    runtime.store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    runtime.store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+    runtime.model_config = TrinityReplyModelConfig(
+        provider="ollama",
+        ollama_base_url="http://127.0.0.1:11434",
+        timeout_seconds=10.0,
+        generator=TrinityRoleRoute(
+            provider="ollama",
+            model="generator-test",
+            temperature=0.2,
+            keep_alive="5m",
+        ),
+        refiner=TrinityRoleRoute(
+            provider="ollama",
+            model="refiner-test",
+            temperature=0.2,
+            keep_alive="5m",
+        ),
+        evaluator=TrinityRoleRoute(
+            provider="ollama",
+            model="evaluator-test",
+            temperature=0.1,
+            keep_alive="5m",
+        ),
+    )
+
+    class LowConfidenceOllamaClient:
+        def chat_json(self, *, route, system_prompt, user_prompt):  # type: ignore[no-untyped-def]
+            if route.model == "generator-test":
+                return {
+                    "candidates": [
+                        {
+                            "title": "Direct reply",
+                            "content": "I can try to send an update.",
+                            "impact": 1,
+                            "confidence": 1,
+                            "ease": 1,
+                            "tags": ["direct"],
+                        },
+                        {
+                            "title": "Clarify first",
+                            "content": "Can you confirm which update you need?",
+                            "impact": 1,
+                            "confidence": 1,
+                            "ease": 1,
+                            "tags": ["clarify"],
+                        },
+                        {
+                            "title": "Advance later",
+                            "content": "I will come back once I verify the numbers.",
+                            "impact": 1,
+                            "confidence": 1,
+                            "ease": 1,
+                            "tags": ["advance"],
+                        },
+                    ]
+                }
+            if route.model == "refiner-test":
+                payload = json.loads(user_prompt)
+                return {
+                    "title": payload["candidate"]["title"],
+                    "content": payload["candidate"]["content"],
+                    "impact": 1,
+                    "confidence": 1,
+                    "ease": 1,
+                    "tags": payload["candidate"]["semantic_tags"],
+                    "reason": "Refined with weak confidence.",
+                }
+            return {
+                "evaluations": [
+                    {
+                        "candidate_id": item["candidate_id"],
+                        "disposition": "ELIGIBLE",
+                        "impact": 1,
+                        "confidence": 1,
+                        "ease": 1,
+                        "quality_score": 10.0,
+                        "urgency_score": 10.0,
+                        "freshness_score": 10.0,
+                        "feedback_score": 0.0,
+                        "reason": "Low-confidence candidate.",
+                    }
+                    for item in json.loads(user_prompt)["candidates"]
+                ]
+            }
+
+    runtime.ollama_client = LowConfidenceOllamaClient()  # type: ignore[assignment]
+
+    snapshot = ThreadSnapshot(
+        company_id=uuid4(),
+        thread_ref="reply:email:review-needed@example.com",
+        channel="email",
+        contact_handle="review-needed@example.com",
+        latest_inbound_text="Can you send the updated numbers today?",
+        requested_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+        messages=(
+            ThreadMessageSnapshot(
+                message_id="msg-1",
+                role=ThreadMessageRole.CONTACT,
+                text="Can you send the updated numbers today?",
+                occurred_at=datetime(2026, 5, 1, 11, 59, tzinfo=UTC),
+                channel="email",
+                source="email",
+                handle="review-needed@example.com",
+            ),
+        ),
+    )
+
+    ranked = runtime.suggest(snapshot)
+    payload = runtime.store.load_cycle(ranked.cycle_id)
+
+    assert all(draft.delivery_eligible is False for draft in ranked.drafts)
+    assert all("human_review_required" in draft.risk_flags for draft in ranked.drafts)
+    assert payload["runtime_loop_decision"]["loop_decision"]["action"] == "escalate"
+    assert payload["runtime_hitl_escalation"]["decision_target"] == "reply_send_decision"
+
+    outcome = DraftOutcomeEvent(
+        company_id=snapshot.company_id,
+        cycle_id=ranked.cycle_id,
+        thread_ref=snapshot.thread_ref,
+        channel=snapshot.channel,
+        candidate_id=ranked.drafts[0].candidate_id,
+        disposition=DraftOutcomeDisposition.EDITED_THEN_SENT,
+        occurred_at=datetime(2026, 5, 1, 12, 2, tzinfo=UTC),
+        original_draft_text=ranked.drafts[0].draft_text,
+        final_text="Here is the corrected human-approved reply.",
+        edit_distance=0.4,
+        latency_ms=1800,
+        send_result="ok",
+    )
+    runtime.record_outcome(outcome)
+    summaries = runtime.memory_store.list_memory_summaries(
+        snapshot.company_id,
+        scope_refs=(f"company:{snapshot.company_id}", f"human:thread:{snapshot.thread_ref}"),
+        limit=10,
+    )
+    assert any(summary.metadata.get("family") == "correction" for summary in summaries)
+    assert any(summary.metadata.get("family") == "disagreement" for summary in summaries)
+    assert any(summary.metadata.get("family") == "human_resolution" for summary in summaries)
+
+    exported = runtime.export_training_bundle(
+        ranked.cycle_id,
+        bundle_type=TrainingBundleType.TONE_LEARNING,
+    )
+    assert exported["bundle"]["labels"]["runtime_loop_action"] == "escalate"
+    assert exported["bundle"]["labels"]["had_hitl_escalation"] == "true"
+    assert exported["bundle"]["labels"]["had_minority_report"] == "true"

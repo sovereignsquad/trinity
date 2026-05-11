@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID, uuid5
 
 from .candidate import CandidateRecord, CandidateScores, CandidateType
@@ -444,6 +445,10 @@ class RuntimeTraceExport:
     stage_evidence_anchors: tuple[StageEvidenceAnchor, ...] = ()
     feedback_events: tuple[DraftOutcomeEvent, ...] = ()
     model_routes: Mapping[str, str] = field(default_factory=dict)
+    runtime_memory_context: Mapping[str, Any] = field(default_factory=dict)
+    runtime_memory_profile: Mapping[str, Any] = field(default_factory=dict)
+    runtime_loop_decision: Mapping[str, Any] = field(default_factory=dict)
+    runtime_hitl_escalation: Mapping[str, Any] = field(default_factory=dict)
     contract_version: str = REPLY_CONTRACT_VERSION
 
     def __post_init__(self) -> None:

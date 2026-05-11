@@ -21,6 +21,10 @@ cd apps/macos
 swift build
 ```
 
+Install prerequisites for the full local repository are documented in:
+
+- [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+
 ## Current Expectations
 
 - keep the app buildable with `swift build`

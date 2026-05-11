@@ -8,12 +8,133 @@ This document captures the current resume point for `{trinity}`.
 
 Most recent meaningful tranche:
 
+- local install guidance is now explicit in `docs/LOCAL_INSTALL.md`, so a fresh repository checkout can install the Python runtime, run the CLI, and build the macOS shell without guessing which dependencies are required versus optional
+- `README.md`, `docs/TECH_STACK.md`, and `docs/MACOS_DEVELOPMENT.md` now point at that install path and clarify that `ollama`, `mistral-cli`, and Gobii are optional lanes rather than base install requirements
+- a concrete preparation plan for a third downstream app is now in-repo at `docs/THIRD_APP_PREPARATION_PLAN.md`, so the next adapter can land through an explicit checklist instead of another round of architectural rediscovery
+- the plan is intentionally preparatory rather than product-specific: it focuses on adapter registration, generic CLI gating, minimum contract shapes, memory participation, and optional policy/train seams without assuming the third app must look like `{reply}` or `{spot}`
+- `docs/ADAPTER_AUTHORING_GUIDE.md` now points future contributors at that plan before they start a new adapter
+- the next active-memory deepening slice is now landed in a bounded form: retrieval records already had deterministic ranking metadata, and the runtime now also turns those ranked records into explicit `core`, `working`, and `archival` summaries plus a compact retrieval summary for downstream reasoning surfaces
+- the practical effect is modest but important: Reply and Spot no longer consume runtime memory only as flat family buckets, and can now reference tier-aware summaries in generator, feedback, ranking, and rework context without changing storage ownership or introducing hidden retrieval magic
+- the inspectability seam is also stronger now: runtime traces expose the top ranked memory records with score and selection reason, and adapters consume compact ranked-memory lines alongside the tier summaries
+- the current implementation lives in `core/trinity_core/memory/profile.py` and `core/trinity_core/ops/runtime_trace.py`, with the new summaries threaded into `core/trinity_core/reply_runtime.py` and `core/trinity_core/adapters/product/spot/runtime.py`
+- issue `#53` is now complete for the intended bounded slice: `{trinity}` can now promote persisted runtime traces into explicit replayable evaluation datasets instead of relying only on hand-built fixtures
+- the new seam is intentionally governed and file-backed: curation requires explicit `selection_reason`, preserves source cycle and artifact provenance, and replay produces a persisted report artifact instead of mutating live runtime state
+- the current implementation is Reply-only and lives in `core/trinity_core/ops/eval_datasets.py`, with CLI entrypoints for `curate-eval-dataset` and `replay-eval-dataset` plus the operating note in `docs/PRODUCTION_TRACE_EVAL_DATASETS.md`
+- issue `#40` is now complete for the intended bounded slice: `{trinity}` now has explicit core, working, and archival memory tiers, with deterministic placement rules and tier-attributed retrieval output instead of one effectively flat memory context
+- the tier seam is intentionally contract-first: contact/thread and current-item human-resolution state stay `core`, broader company/topic/stage summaries stay `working`, and retrieval chunks stay `archival`
+- retrieval traces now expose which tiers contributed context, so later ranking and summarization work can deepen behavior on top of an explicit hierarchy instead of ambiguous flat retrieval
+- issue `#26` is now complete for the intended bounded slice: `{trinity}` now has an explicit active-thread prepared-draft refresh loop that ranks dirty/stale/missing threads, skips fresh clean drafts unless forced, and can materialize per-thread control-plane refresh jobs without claiming a resident scheduler already exists
+- the stronger refresh contract now lives in `core/trinity_core/memory/storage.py`, `core/trinity_core/reply_runtime.py`, and `core/trinity_core/ops/control_plane.py`; operators can inspect refresh candidates through `plan-prepared-draft-refresh` and persist bounded jobs through `schedule-prepared-draft-refresh`
+- the important boundary is now clearer in repo docs: refresh planning and job materialization are implemented, but scheduler residency, retry policy, and broad autonomous background execution are still intentionally out of scope
+- issue `#36` is now complete for the intended bounded slice: `{trinity}` now has one explicit Gobii-backed tracked-entity profile-enrichment workflow that can be built, submitted, persisted, and normalized into Trinity-owned artifacts without leaking product semantics into core runtime code
+- the proof is intentionally narrow and copyable: one enrichment bundle is persisted first, one Gobii browser-use task is submitted with a required `output_schema`, the completed task record is persisted locally, and normalization produces one document, memory-event, retrieval, and evidence trail inside `{trinity}`
+- the new workflow lives in `core/trinity_core/ops/gobii_enrichment.py`, adds explicit contracts in `core/trinity_core/schemas/gobii_enrichment.py`, and exposes high-level CLI entrypoints for `make-gobii-profile-enrichment`, `submit-gobii-profile-enrichment`, and `normalize-gobii-profile-enrichment`
+- the new operational SSOT is `docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md`, which explains the exact pattern, persisted artifacts, safety boundary, and current limits for future contributors
+- issue `#34` is now complete for the intended bounded slice: the Gobii agent/task clients now distinguish missing config, auth failures, timeouts, unreachable transport, invalid JSON, and invalid list payload shapes through explicit error paths and focused tests
+- this closes the specific acceptance gap that kept `#34` open after the first implementation slice landed; the remaining Gobii work should now move forward through workflow proof issues like `#36`, not back through transport ambiguity
+- external market research was translated into Trinity planning artifacts: the board now uses the same 8-state status taxonomy as org project `#3`, and 25 new structured ideabank issues were created as `#40` to `#64`
+- those new ideabank issues are intentionally grounded in leader-platform patterns from OpenAI Responses, LangGraph/LangSmith, Letta, AutoGen, CrewAI, n8n, Arize Phoenix, Browserbase/Stagehand, Promptfoo, Glean, and Vellum, but were rewritten as Trinity-native outcomes rather than vendor feature clones
+- legacy Trinity issue bodies `#24` to `#28` were upgraded to the same structure/quality bar used in `sovereignsquad/train#17`, so the remaining non-normalized issue set has been reduced
+- focused Reply/Spot validation against the new shared runtime infrastructure found one real Spot false-negative hole and fixed it in code: violent-threat phrasing like "bring weapons" / "make them pay" no longer falls through to benign auto-approval
+- the fix is in `core/trinity_core/adapters/product/spot/runtime.py`: broader violent-threat anchors now participate in both candidate selection and high-risk gating, and negative auto-approval is now explicitly blocked for high-risk content
+- focused validation now says: Reply runtime/policy/export seams are passing under the new infrastructure, and Spot runtime/policy/train seams are also passing for the bounded contract slice with the new regression coverage in place
+- issue `#35` is now implemented in its first bounded slice: Gobii task output can now be normalized through an explicit envelope into Trinity-owned document, retrieval, memory-event, and evidence artifacts
+- normalization is intentionally fail-closed: task records must already be bound to one adapter and one company, tasks must be completed, and normalization is explicit through `normalize-gobii-task --input-file <path>`
+- the Gobii task lifecycle surface now preserves local adapter/company binding across later result refreshes and cancels, so the transport seam can safely feed later runtime ingestion without hidden tenant inference
+- issue `#39` is now actively underway and the first Gobii-backed recurring workflow proof is landed: `{trinity}` can now package a bounded Reply provider-comparison control-plane job into a Gobii-ready recurring workflow bundle and optionally register it through Gobii's Agent API
+- the Gobii proof keeps ownership explicit: Gobii holds recurrence and agent lifecycle, while `{trinity}` still owns the control-plane job, run artifact, and provider-comparison report
+- the equivalent local trigger command is persisted inside the Gobii workflow bundle so the recurring workflow remains replayable even when Gobii is not present in local test runs
+- issue `#38` is now actively underway and the first control-plane slice is landed: `{trinity}` now has explicit control-plane job and run artifacts for recurring benchmark and refresh workflows
+- the first control-plane seam is intentionally file-driven and bounded: jobs are persisted JSON definitions, runs are persisted JSON execution records, and runtime ownership still stays inside `{trinity}`
+- the initial implemented job kinds are `reply_provider_comparison` and `reply_prepared_draft_refresh`, which proves one recurring benchmark lane and one recurring refresh lane without introducing a hidden scheduler
+- issue `#37` is now actively underway and the first comparison-harness slice is landed: `{trinity}` can now replay bounded Reply shadow fixtures across multiple provider/model route sets and persist machine-readable comparison reports
+- provider comparison currently stays inside `ops.*` and uses the existing provider seam rather than changing workflow code: per-role provider calls are tracked, fallback roles are measured, and route/corpus identity is preserved in the report artifact
+- the first comparison lane is intentionally bounded to Reply shadow fixtures so route measurement stays replayable and governed instead of drifting into live route mutation
+- issue `#32` is now actively underway and the first implementation slice is landed: `{trinity}` now supports `mistral-cli` as a second real local model provider through `adapter.model.*`
+- the first `mistral-cli` slice is intentionally explicit about its limits: it targets the `vibe` programmatic CLI path, preserves route model names in config and traces, and treats those route model names as advisory rather than CLI-enforced in this first tranche
+- runtime config and status surfaces now expose `mistral-cli` executable, args, mode, and model-binding assumptions, and provider status can now fail clearly for unsupported, offline, or missing-executable states on that lane
+- Spot now has the first bounded Trinity↔Train seam: Trinity can export `spot-review-policy-learning` bundles, and Train can consume them to produce a first bounded Spot review-policy proposal/eval artifact
+- Spot now has a bounded policy adoption seam inside Trinity: accepted `spot_review_policy` artifacts are stored explicitly, the CLI can review/accept/train-propose for the Spot review-policy slice, and Spot runtime decisions now resolve the accepted threshold instead of using only the fallback default
+- Spot policy resolution is now company-aware: accepted review policies are stored and resolved by `company -> global`, and rollback preserves scope metadata so parallel Spot tenants do not have to share one adapter-global threshold
+- Spot now has a bounded human-review ingestion path in Trinity: reviewer outcomes persist correction, successful-pattern, disagreement, and human-resolution memory summaries through the Spot runtime, and the CLI now exposes dedicated Spot reasoning and review-outcome commands
+- Spot review policy is now explicit in the runtime contract: high-confidence benign outcomes may auto-approve, positive or risky outcomes remain review-required, and every row still exposes deeper analysis and human override
+- Reply feedback now closes part of the runtime learning loop: outcome recording persists explicit successful-pattern, correction, anti-pattern, disagreement, and human-resolution memory summaries, and bounded training bundles now carry loop/escalation labels for later `{train}` use
+- bounded loop-control and HiTL execution are now implemented in code: Reply uses runtime confidence/minority signals to gate delivery eligibility and emit structured human-escalation payloads, while Spot performs one bounded rework pass before escalating
+- shared runtime memory shaping is now implemented for both Reply and Spot: retrieved memory is no longer only trace metadata, it is grouped into explicit reasoning hints through `core/trinity_core/memory/profile.py` and threaded into both adapter runtimes
+- the first minimal `{spot}` runtime slice is now implemented: Trinity can perform bounded per-message Spot reasoning through `TrinityRuntime(adapter_name="spot").reason_spot(...)` while leaving workbook and taxonomy ownership in `{spot}`
+- the second safe code tranche is now implemented: generic runtime trace-context helpers exist and `{spot}` now has a bounded reasoning contract in code without being claimed as a full runtime adapter
+- the first safe code tranche of the restoration program is now implemented: generic runtime memory retrieval and bounded loop/consensus scaffolding exist and are wired into Reply traces without changing surfaced Reply behavior
+- execution direction is now being corrected from a narrow provider-first / Reply-policy-first lane toward restoration of `{trinity}` as the proper core system
+- a concrete restoration program now exists in `docs/TRINITY_RESTORATION_PLAN.md`
+- the next required work is contract-first: memory architecture, minority report, loop-budget, and Human-in-the-Loop definitions must be made explicit before larger runtime expansion
+- runtime documentation now clearly distinguishes implemented live-brain behavior from target expansion, so resume work can start from current contract docs instead of mixed future-state wording
+- repo now contains a concrete live-brain runtime architecture for `{reply}` + `{trinity}` + `{train}` instead of only the narrower current policy-loop spine
 - `{trinity}` moved from an implicitly Reply-shaped runtime shell to an explicit adapter-aware runtime surface
 - `{trinity}` Reply runtime was hardened for parallel multi-company execution under one adapter root
 - `{trinity}` now has a callable autonomous handoff into `{train}` for bounded Reply policy proposal generation
+- `{trinity}` now contains the first implemented live-brain slice: runtime-owned memory persistence plus prepared-draft storage/refresh seams for the Reply adapter
+- GitHub roadmap planning was tightened so the next execution lane is explicit in both the board and repo docs: model-provider epic `#9` is now decomposed into `#29` to `#32`, and Gobii external-ops epic `#33` is decomposed into `#34` to `#36`
+- the first provider-seam implementation tranche is now landed: `#29` provider-neutral contract and `#30` Ollama extraction are implemented in code, with `#31` and `#32` remaining for the next provider additions
 
 Implemented in that tranche:
 
+- `core/trinity_core/adapters/product/spot/runtime.py` now treats broader violent-threat language as high-risk and refuses benign auto-approval for that content class
+- `tests/test_adapter_runtime.py` now contains a regression case proving high-risk violent wording stays `review_required` and policy-sensitive under the Spot bounded runtime
+- `core/trinity_core/schemas/gobii_normalization.py` now defines the explicit request and normalized-artifact bundle contracts for Gobii result ingestion
+- `core/trinity_core/ops/gobii_normalization.py` now resolves bound task records, rejects malformed or cross-tenant inputs, persists normalized bundle artifacts, and writes runtime-owned document plus memory-event state
+- `core/trinity_core/schemas/gobii_enrichment.py` now defines the explicit tracked-entity enrichment request and bundle contracts for the first bounded sourcing proof
+- `core/trinity_core/ops/gobii_enrichment.py` now builds, persists, submits, loads, and normalizes tracked-entity profile-enrichment bundles through the Gobii task seam
+- `core/trinity_core/schemas/gobii_tasks.py` and `core/trinity_core/ops/gobii_tasks.py` now preserve explicit local `adapter_name` and `company_id` binding on task records, can reload persisted task records, and can merge existing local context onto refreshed remote task payloads
+- `core/trinity_core/cli.py` now exposes `normalize-gobii-task`, `make-gobii-profile-enrichment`, `submit-gobii-profile-enrichment`, and `normalize-gobii-profile-enrichment`; generic task result/list/cancel flows still preserve previously stored task binding where available
+- `tests/test_gobii_normalization.py` now covers one successful normalization path and one fail-closed tenant-binding rejection path
+- `tests/test_gobii_enrichment.py` now covers one direct end-to-end enrichment workflow path plus one CLI bundle/normalization path
+- `core/trinity_core/schemas/gobii_tasks.py` now defines normalized Gobii browser-use task contracts
+- `core/trinity_core/ops/gobii_tasks.py` now implements a narrow Gobii task lifecycle client plus local task-record persistence
+- `core/trinity_core/ops/gobii_client.py` and `core/trinity_core/ops/gobii_tasks.py` now fail early on missing `base_url` / API key config, map HTTP `401/403` into auth failures, distinguish timeouts from unreachable transport, and reject invalid JSON or malformed task-list payloads explicitly
+- `core/trinity_core/cli.py` now exposes `submit-gobii-task`, `gobii-task-result`, `list-gobii-tasks`, and `cancel-gobii-task`
+- `tests/test_gobii_tasks.py` now covers the client and one CLI persistence path
+- `tests/test_gobii_client.py` and `tests/test_gobii_tasks.py` now also cover auth/config/timeout/unreachable/invalid-response behavior for the bounded transport seam
+- `core/trinity_core/schemas/prepared_drafts.py` now defines explicit refresh-candidate and refresh-plan contracts alongside prepared-draft artifacts
+- `core/trinity_core/schemas/memory.py` now defines explicit `core` / `working` / `archival` memory tiers for retrieved runtime records
+- `core/trinity_core/schemas/eval_datasets.py` now defines curated eval cases, datasets, replay results, and replay reports for trace-derived evaluation corpora
+- `core/trinity_core/ops/eval_datasets.py` now curates persisted runtime traces into replayable eval datasets and replays those datasets through the Reply runtime
+- `core/trinity_core/memory/retrieval.py` now classifies retrieved records into deterministic tiers and carries tier counts into retrieved runtime context
+- `core/trinity_core/memory/profile.py` now derives tier-aware summaries and a compact retrieval summary from the ranked runtime memory context instead of only family-grouped hints
+- `core/trinity_core/ops/runtime_trace.py` now persists memory tier counts in runtime trace payloads so retrieval provenance is more explainable
+- `core/trinity_core/ops/runtime_trace.py` now also persists the top ranked memory records with relevance score and selection reason, so trace inspection can explain why those records won retrieval
+- `core/trinity_core/reply_runtime.py` and `core/trinity_core/adapters/product/spot/runtime.py` now pass those summaries into their shared reasoning context so adapters can use ranked-memory takeaways directly
+- `core/trinity_core/cli.py` now exposes `curate-eval-dataset` and `replay-eval-dataset`
+- `core/trinity_core/memory/storage.py` now builds bounded prepared-draft refresh plans from dirty-thread state, prepared-draft freshness, and active thread snapshots
+- `core/trinity_core/reply_runtime.py` now skips refresh when a prepared draft is still fresh and clean, refreshes explicitly when forced/dirty/stale, and exposes runtime refresh inspection for active-thread planning
+- `core/trinity_core/ops/control_plane.py` now materializes per-thread prepared-draft refresh jobs from the runtime refresh plan instead of assuming a hidden scheduler
+- `core/trinity_core/cli.py` now exposes `plan-prepared-draft-refresh` and `schedule-prepared-draft-refresh`, and `refresh-prepared-draft` now carries explicit overwrite behavior
+- `tests/test_runtime_memory.py` and `tests/test_control_plane.py` now verify refresh candidate ranking, skip-versus-overwrite behavior, and per-thread control-plane job persistence
+- `tests/test_runtime_memory.py`, `tests/test_memory_profile.py`, and `tests/test_integration_contracts.py` now verify tier placement and tier-attributed retrieval behavior
+- `tests/test_runtime_memory.py` and `tests/test_memory_profile.py` now also verify ranked-record selection metadata and tier-summary payload shaping
+- `tests/test_integration_contracts.py` now also verifies the new ranked-memory trace/profile payload surface
+- `tests/test_eval_datasets.py` now verifies trace curation, dataset persistence, and replayability
+- `core/trinity_core/schemas/gobii.py` now defines bounded Gobii agent-create and workflow-bundle contracts
+- `core/trinity_core/ops/gobii_client.py` now implements a narrow Gobii Agent API client for create/update operations
+- `core/trinity_core/ops/gobii_workflows.py` now builds, persists, loads, and registers Gobii recurring workflow bundles for the first bounded maintenance workflow proof
+- `core/trinity_core/cli.py` now exposes `make-gobii-workflow` and `register-gobii-workflow`
+- `tests/test_gobii_client.py` and `tests/test_gobii_workflows.py` now cover the narrow Gobii proof path
+- `docs/GOBII_RECURRING_WORKFLOW.md` now documents the chosen recurring workflow, ownership split, artifact trail, and current limitation
+- `core/trinity_core/schemas/control_plane.py` now defines bounded control-plane job and run contracts
+- `core/trinity_core/ops/control_plane.py` now implements control-plane job persistence, run persistence, execution, and the first two job families
+- `core/trinity_core/cli.py` now exposes `make-control-job`, `run-control-job`, and `control-run-status`
+- `tests/test_control_plane.py` now proves persisted job creation plus successful benchmark and prepared-draft refresh runs through the new seam
+- `docs/CONTROL_PLANE_SEAM.md` now documents ownership boundaries, storage layout, job kinds, failure surfaces, and the scheduler boundary
+- `core/trinity_core/ops/provider_comparison.py` now implements the first bounded provider comparison harness, including route-set loading, deterministic baseline/current-config helpers, per-role provider tracking, report persistence, and Reply shadow-fixture replay
+- `core/trinity_core/cli.py` now exposes `compare-providers --adapter reply` with route-set files, deterministic baseline, and current-config comparison support
+- `tests/test_provider_comparison.py` now proves route-set loading plus one multi-route comparison flow with explicit fallback measurement and persisted report output
+- `docs/PROVIDER_COMPARISON_HARNESS.md` now documents the route-set file contract, report metrics, quality-fit scoring, fallback measurement, and governance boundary
+- `core/trinity_core/adapters/model/mistral_cli.py` now implements a real `mistral-cli` provider using the `vibe` programmatic CLI path with explicit subprocess error handling and JSON extraction
+- `core/trinity_core/model_config.py` now persists `mistral-cli` executable, extra-arg, mode, and model-binding assumptions through the shared provider-neutral config contract
+- `core/trinity_core/adapters/model/base.py`, `core/trinity_core/adapters/model/__init__.py`, and `core/trinity_core/cli.py` now recognize `mistral-cli` as a supported provider and surface its config through `show-config`, `write-config`, and `runtime-status`
+- `tests/test_mistral_cli_provider.py`, `tests/test_model_config.py`, and `tests/test_adapter_runtime.py` now cover success, missing-executable, config persistence, and runtime-status behavior for the new provider lane
+- normalized `docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md` around current contract versus target expansion
+- updated `docs/CLI_REFERENCE.md` to include memory-event, document-registration, and prepared-draft commands already implemented in code
+- repo-resident live-brain runtime architecture spec in `docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md`
 - generic adapter helpers in `core/trinity_core/adapters`
 - generic `TrinityRuntime` facade in `core/trinity_core/runtime.py`
 - generic CLI commands with `--adapter` in `core/trinity_core/cli.py`
@@ -37,6 +158,41 @@ Implemented in that tranche:
 - policy review decisions are now persisted as standalone review artifacts and accepted pointers can link back to the review decision id
 - explicit reply-only focus for the runtime, policy, and Train workflow
 - direct operating-contract documentation for the `{reply} <-> {trinity} <-> {train}` seam
+- `core/trinity_core/memory/storage.py` now persists memory events, contact/thread state, documents, retrieval chunks, dirty threads, and prepared drafts in one SQLite store
+- `core/trinity_core/adapters/product/reply/payloads.py` now owns Reply-side payload normalization for thread snapshots, outcomes, memory events, and document registration
+- `core/trinity_core/runtime.py`, `core/trinity_core/reply_runtime.py`, and `core/trinity_core/cli.py` now expose:
+  - memory-event ingestion
+  - document registration
+  - prepared-draft lookup
+  - prepared-draft refresh from the latest stored snapshot
+- runtime memory contract now also recognizes `document_deleted` and `draft_edited` lifecycle events, and `ReplyRuntime` deletes runtime-owned document/retrieval rows when a `document_deleted` event is ingested
+- `core/trinity_core/workflow/prepared_drafts.py` now builds persisted prepared-draft sets from ranked draft output
+- `tests/test_runtime_memory.py` now covers the new memory/prepared-draft store roundtrip
+- GitHub issue `#9` now explicitly sequences provider-seam work through `#29` contract, `#30` Ollama extraction, `#31` MLX provider, and `#32` `mistral-cli` provider
+- GitHub issue `#33` now explicitly sequences Gobii work through `#34` ops client, `#35` result normalization, and `#36` one bounded sourcing/enrichment proof
+- `core/trinity_core/adapters/model/` now exists with provider-neutral adapter primitives plus the concrete Ollama provider implementation
+- `core/trinity_core/model_config.py` now exposes a provider-neutral `TrinityModelConfig` contract while preserving Reply compatibility aliases
+- `core/trinity_core/reply_runtime.py` no longer constructs Ollama directly; it now routes structured generation, refinement, and evaluation calls through `self.model_provider`
+- `core/trinity_core/cli.py` now initializes runtime lazily so config inspection still works when a provider is configured but not yet implemented, and `runtime-status` can report `unsupported` explicitly
+- `tests/test_adapter_runtime.py` now covers unsupported provider status and provider rewrite behavior in `write-config`
+- `core/trinity_core/memory/retrieval.py` now resolves one scoped Reply runtime memory context from the runtime-owned memory store
+- `core/trinity_core/memory/profile.py` now converts retrieved memory into explicit preference, correction, anti-pattern, successful-pattern, disagreement, and evidence hints for shared runtime use
+- `core/trinity_core/memory/retrieval.py` now resolves human-resolution scopes explicitly and classifies memory summaries by declared family metadata instead of only by summary-key heuristics
+- `core/trinity_core/workflow/decision_loop.py` now computes generic stage opinions, confidence bundles, consensus, minority-report scaffolding, and bounded loop decisions
+- `core/trinity_core/schemas/runtime_decision.py` now declares the generic runtime decision artifacts used by that scaffolding, including structured human-escalation payloads
+- `core/trinity_core/reply_runtime.py` now feeds shared memory-profile hints into generator constraints, strategic context, feedback memory, ranking context, and strategic policy, records runtime memory context/profile into trace payloads, and now gates low-confidence or dissent-heavy Reply output by marking drafts non-delivery-eligible and emitting a structured HiTL artifact instead of silently sending
+- `core/trinity_core/reply_runtime.py` now also persists outcome-derived memory summaries at record time and bounded training bundles now preserve loop/escalation labels so later `{train}` jobs can learn from runtime disagreement and human resolution without becoming the live runtime owner
+- `core/trinity_core/ops/runtime_trace.py` now owns generic trace payload shaping and persistence helpers instead of leaving those inline in `ReplyRuntime`
+- `core/trinity_core/schemas/spot_integration.py` now declares bounded Spot reasoning request/result contracts
+- `core/trinity_core/adapters/product/spot/payloads.py` now parses both Spot reasoning requests and Spot review outcomes into runtime-owned contracts
+- `core/trinity_core/adapters/product/spot/runtime.py` now provides the first bounded Spot runtime implementation using shared memory retrieval, shared memory-profile shaping, one bounded rework pass, structured HiTL escalation payloads, explicit review-policy outputs for auto-approve vs review-required behavior, reviewer-outcome memory persistence, and bounded Spot training-bundle export
+- `core/trinity_core/runtime.py` and `core/trinity_core/cli.py` now expose dedicated Spot reasoning and Spot review-outcome entrypoints instead of leaving Spot as a read-only runtime slice
+- `core/trinity_core/runtime.py` now dispatches `adapter_name="spot"` and exposes `reason_spot(...)`
+- `core/trinity_core/model_config.py` now accepts supported adapters generically for model-config load/save paths
+- `tests/test_spot_contracts.py` now verifies the bounded Spot contract surface
+- `tests/test_adapter_runtime.py` now verifies the bounded Spot runtime slice
+- `tests/test_runtime_memory.py` now covers the new Reply memory resolver
+- `tests/test_integration_contracts.py` now verifies that Reply trace payloads carry runtime memory and loop-decision metadata
 
 ## What Was Preserved
 
@@ -49,6 +205,36 @@ Implemented in that tranche:
 ## What Was Verified
 
 - `uv run pytest`
+- `uv run pytest tests/test_runtime_memory.py`
+- `uv run pytest tests/test_model_config.py tests/test_adapter_runtime.py tests/test_integration_contracts.py`
+- `uv run ruff check core/trinity_core/adapters/model core/trinity_core/cli.py core/trinity_core/model_config.py core/trinity_core/ollama_client.py core/trinity_core/reply_runtime.py core/trinity_core/runtime.py tests/test_adapter_runtime.py tests/test_model_config.py tests/test_integration_contracts.py`
+- `uv run pytest tests/test_runtime_memory.py tests/test_integration_contracts.py`
+- `uv run pytest tests/test_spot_contracts.py tests/test_runtime_memory.py tests/test_integration_contracts.py`
+- `uv run pytest tests/test_adapter_runtime.py tests/test_spot_contracts.py tests/test_runtime_memory.py tests/test_integration_contracts.py`
+- `uv run pytest tests/test_adapter_runtime.py tests/test_spot_contracts.py tests/test_runtime_memory.py tests/test_integration_contracts.py tests/test_memory_profile.py`
+- `uv run pytest tests/test_spot_contracts.py tests/test_adapter_runtime.py`
+- `uv run pytest tests/test_adapter_runtime.py tests/test_spot_contracts.py`
+- `uv run ruff check core/trinity_core/schemas/spot_integration.py core/trinity_core/adapters/product/spot/payloads.py core/trinity_core/adapters/product/spot/runtime.py core/trinity_core/runtime.py core/trinity_core/cli.py tests/test_spot_contracts.py tests/test_adapter_runtime.py`
+- `uv run ruff check core/trinity_core/memory core/trinity_core/schemas core/trinity_core/workflow core/trinity_core/reply_runtime.py tests/test_runtime_memory.py tests/test_integration_contracts.py`
+- `uv run ruff check core/trinity_core/reply_runtime.py core/trinity_core/adapters/product/spot/runtime.py core/trinity_core/memory core/trinity_core/schemas/integration.py tests/test_adapter_runtime.py tests/test_spot_contracts.py tests/test_runtime_memory.py tests/test_integration_contracts.py tests/test_memory_profile.py`
+- `uv run ruff check core/trinity_core/memory/retrieval.py core/trinity_core/reply_runtime.py tests/test_runtime_memory.py tests/test_integration_contracts.py tests/test_memory_profile.py tests/test_adapter_runtime.py tests/test_spot_contracts.py`
+- `uv run pytest tests/test_model_config.py tests/test_mistral_cli_provider.py tests/test_adapter_runtime.py`
+- `uv run pytest tests/test_provider_comparison.py`
+- `uv run pytest tests/test_control_plane.py`
+- `uv run pytest tests/test_gobii_client.py tests/test_gobii_workflows.py`
+- `uv run pytest tests/test_gobii_tasks.py`
+- `uv run pytest tests/test_gobii_tasks.py tests/test_gobii_normalization.py`
+- `uv run pytest tests/test_gobii_enrichment.py tests/test_gobii_normalization.py tests/test_gobii_tasks.py`
+- `uv run ruff check core/trinity_core/ops/gobii_enrichment.py core/trinity_core/cli.py core/trinity_core/ops/__init__.py core/trinity_core/schemas/gobii_enrichment.py core/trinity_core/schemas/__init__.py tests/test_gobii_enrichment.py`
+- `uv run pytest tests/test_runtime_memory.py tests/test_control_plane.py tests/test_integration_contracts.py`
+- `uv run ruff check core/trinity_core/memory/storage.py core/trinity_core/reply_runtime.py core/trinity_core/runtime.py core/trinity_core/ops/control_plane.py core/trinity_core/ops/__init__.py core/trinity_core/schemas/prepared_drafts.py core/trinity_core/schemas/__init__.py core/trinity_core/cli.py tests/test_runtime_memory.py tests/test_control_plane.py`
+- `uv run pytest tests/test_runtime_memory.py tests/test_memory_profile.py tests/test_integration_contracts.py`
+- `uv run ruff check core/trinity_core/schemas/memory.py core/trinity_core/schemas/__init__.py core/trinity_core/memory/retrieval.py core/trinity_core/ops/runtime_trace.py tests/test_runtime_memory.py tests/test_memory_profile.py tests/test_integration_contracts.py`
+- `uv run pytest tests/test_eval_datasets.py tests/test_reply_shadow_fixtures.py tests/test_integration_contracts.py`
+- `uv run ruff check core/trinity_core/ops/eval_datasets.py core/trinity_core/ops/__init__.py core/trinity_core/schemas/eval_datasets.py core/trinity_core/schemas/__init__.py core/trinity_core/cli.py tests/test_eval_datasets.py`
+- `uv run pytest tests/test_adapter_runtime.py tests/test_spot_contracts.py tests/test_integration_contracts.py tests/test_runtime_memory.py tests/test_memory_profile.py tests/test_reply_policy_gate.py tests/test_reply_policy_store.py tests/test_reply_shadow_fixtures.py tests/test_spot_policy_gate.py tests/test_spot_policy_store.py tests/test_train_client.py`
+- `uv run pytest`
+- `uv run ruff check .`
 - `uv run ruff check .`
 - generic CLI config path works for `--adapter reply`
 - generic runtime rejects unsupported adapter names explicitly
@@ -73,6 +259,13 @@ The repository is now safer to operate and extend because:
 - proposal review and acceptance now preserve more operational skepticism and provenance instead of collapsing everything into a bare version pointer
 - serious acceptance flows now fail closed without holdout replay unless an explicit local/dev override is used
 - `{train}` can now consume more hermetic bundles without needing to re-open the full trace just to recover losing candidates or policy-resolution context
+- the missing architectural step between the current narrow Reply runtime and the desired live-brain system is now explicit: first-class memory, retrieval ownership, and prepared-draft scheduling belong in `{trinity}`, not in `{reply}` or `{train}`
+- the first structural implementation step is now in place, so the next tranche should deepen behavior rather than re-argue ownership: richer retrieval, summarization, and background refresh can build directly on the new runtime memory contracts
+- the next execution start point is now explicit in a stronger form: restore the core-system contracts first, then refactor Reply onto them, then prove the abstraction through a bounded Spot reasoning slice
+- the codebase now has safe generic scaffolding for memory context and loop/consensus reasoning, which means the next code tranche can extract more logic from Reply without inventing the abstractions again
+- the repo now has a real bounded Spot seam in code, so the next step can be a minimal Spot runtime slice instead of another round of abstract contract work
+- that bounded Spot slice now exists, shared memory shaping now exists under both adapters, bounded live control now exists, Reply now persists outcome-derived runtime memory, Spot review policy is explicit, Spot reviewer outcomes now persist to Trinity memory, and the first Spot Train seam now exists, so the next work should deepen that Spot-side optimizer surface and cross-project learning quality, not broaden Trinity into owning Spot workbook behavior
+- the next high-value step is no longer “add a Spot seam” or “remove adapter-global Spot policy state”; both are now done for the first review-policy slice. The next quality step is to add richer Spot artifact families on top of the new company-scoped isolation boundary
 
 ## Watch Carefully
 
@@ -86,3 +279,20 @@ The repository is now safer to operate and extend because:
 - do not normalize `--allow-no-holdout` into regular promotion practice; it exists only for local/dev exception paths
 - do not broaden scope precedence or bundle schema further unless `{train}` actually needs the additional contract surface
 - do not pretend the Reply policy and Train workflow is already multi-adapter; it is intentionally a bounded Reply-centric seam today
+- do not implement live-brain memory or prepared-draft behavior by hiding it inside Reply product code; the new architecture doc makes `{trinity}` the explicit owner
+- do not mistake the new prepared-draft storage seam for a full scheduler yet; background refresh remains a next-step operational loop, not a completed capability
+- do not let provider-addition work or external-ops experiments displace the contract-first restoration lane
+- do not overstate the first `mistral-cli` slice: the current `vibe` path proves a second real backend shape, but route model names are still advisory and provider comparison work should be the next provider-specific step
+- do not let the new comparison harness become live route policy by accident; reports are bounded measurement artifacts, not direct runtime mutation
+- do not mistake the first control-plane seam for a scheduler platform; it is an explicit job/run contract, not a resident orchestration system yet
+- do not overstate the Gobii proof set: it now includes one recurring maintenance workflow and one tracked-entity profile-enrichment workflow, but it is still not a broad Gobii task orchestration layer or a product-side automation engine
+- do not overstate the first Gobii normalization and enrichment slices: they safely register document-style artifacts, but they still are not broad browser-agent workflow mutation or delivery semantics
+- do not confuse "passing infrastructure validation" with "final product-quality parity": Reply still has deterministic/shadow-fixture quality limits, and Spot is still a bounded reasoning slice rather than full workbook/taxonomy ownership
+- do not integrate `{spot}` by copying Reply product semantics; the second project must prove the shared reasoning core, not spread adapter leakage
+- do not add text-changing Reply rework loops until stronger regression coverage says it is safe; current Reply live control is intentionally conservative and gates to human review instead
+- do not confuse the new Spot reasoning contract with full Spot adapter support; workbook ownership and taxonomy enforcement still belong to `{spot}`
+- do not confuse shared memory-profile hints with direct online model mutation; they are runtime retrieval inputs, not global fine-tuning
+- do not mistake persisted human-resolution summaries for full autonomous learning; Spot still needs its own bounded human-resolution ingestion path and Train promotion remains the slow governed learning layer
+- do not let Spot auto-approval semantics erase the mandatory deeper-analysis path; benign auto-pass is allowed, but human review capability must remain available for every row
+- do not overstate the new Spot Train seam; it currently covers only the review-policy slice, not full Spot threshold/routing/prompt optimization yet
+- do not overstate the current state: Trinity now supports both Reply and Spot runtime loops, and Spot now has a first bounded Train proposal/eval/adoption path with company-scoped policy isolation, but Train is still Reply-first overall and Spot still lacks broader artifact families

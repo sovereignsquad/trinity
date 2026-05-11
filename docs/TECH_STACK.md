@@ -12,12 +12,14 @@ This document records the current technical direction for `{trinity}`.
 - `uv`
 - `pytest`
 - `ruff`
+- `git`
 
 ### Native App
 
-- `Swift`
+- `Swift 6.1`
 - `SwiftUI`
 - `Swift Package Manager`
+- `macOS 15` target for the current shell package
 
 ## Stack Rationale
 
@@ -51,3 +53,8 @@ That means:
 - hosted infrastructure is optional later
 - the native shell is part of the product, not an afterthought
 
+## Install Notes
+
+- the base runtime install path is documented in [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+- `ollama` and `mistral-cli` are optional provider dependencies, not required for a fresh deterministic install
+- Gobii credentials and connectivity are optional and only required for the bounded external browser-agent seams

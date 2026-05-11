@@ -95,3 +95,7 @@ Every adapter should ship:
 - one adapter contract document
 - one short usage example
 - one note about what remains product-owned outside `{trinity}`
+
+For preparatory repository work before a third downstream app lands, use:
+
+- [docs/THIRD_APP_PREPARATION_PLAN.md](/Users/Shared/Projects/trinity/docs/THIRD_APP_PREPARATION_PLAN.md)

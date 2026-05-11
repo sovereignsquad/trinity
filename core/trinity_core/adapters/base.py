@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 REPLY_ADAPTER_NAME = "reply"
-SUPPORTED_ADAPTER_NAMES = (REPLY_ADAPTER_NAME,)
+SPOT_ADAPTER_NAME = "spot"
+SUPPORTED_ADAPTER_NAMES = (REPLY_ADAPTER_NAME, SPOT_ADAPTER_NAME)
 
 
 @dataclass(frozen=True, slots=True)

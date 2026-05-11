@@ -1,6 +1,12 @@
 """Workflow contracts and deterministic orchestration helpers."""
 
 from .candidate_lifecycle import advance_candidate, create_candidate, fork_candidate_version
+from .decision_loop import (
+    build_hitl_escalation,
+    decide_loop_action,
+    decide_loop_action_from_signals,
+    synthesize_consensus_decision,
+)
 from .evidence_ingestion import (
     DuplicateEvidenceSuppressed,
     EvidenceIngestionResult,
@@ -34,12 +40,14 @@ __all__ = [
     "advance_candidate",
     "CandidatePipelineResult",
     "create_candidate",
+    "decide_loop_action",
     "DuplicateEvidenceSuppressed",
     "EvaluationDisposition",
     "EvidenceIngestionResult",
     "EvaluatorExecutionInput",
     "execute_candidate_pipeline",
     "build_frontier",
+    "build_hitl_escalation",
     "FrontierEntry",
     "frontier_score",
     "GeneratorExecutionInput",
@@ -57,7 +65,9 @@ __all__ = [
     "StageFailure",
     "canonicalize_content",
     "compute_content_hash",
+    "decide_loop_action_from_signals",
     "fork_candidate_version",
     "ingest_evidence",
     "apply_reply_feedback",
+    "synthesize_consensus_decision",
 ]

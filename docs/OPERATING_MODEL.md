@@ -11,6 +11,13 @@ The goal is to keep delivery strict, explicit, and resumable:
 - one execution path from concept to shipped behavior
 - explicit boundaries between runtime workflow, product adapters, and operations
 
+Current operating bias:
+
+- restore `{trinity}` as the core memory-and-reasoning runtime first
+- keep `{reply}` stable while extracting shared behavior
+- make `{spot}` prove the shared reasoning seam later without importing Reply semantics
+- keep provider additions and external-ops work secondary to the core-system restoration lane
+
 ## Communication Model
 
 We communicate at four levels only:
@@ -38,6 +45,9 @@ System:
 Authoritative for:
 
 - workflow stages
+- memory architecture
+- minority-report rules
+- Human-in-the-Loop escalation rules
 - system boundaries
 - repository contract
 - operator standards
@@ -84,4 +94,3 @@ Examples:
 - `docs: define repository contract`
 - `macos: add shell scaffold`
 - `workflow: define evidence schema`
-

@@ -6,14 +6,15 @@ This document defines the intended structure and boundary rules of the `{trinity
 
 ## Core Separation
 
-The repository is divided into six concerns:
+The repository is divided into seven concerns:
 
 1. documentation
 2. workflow core
 3. schemas and contracts
-4. product adapters
-5. operations and storage
-6. shipped app surfaces
+4. model adapters
+5. product adapters
+6. operations and storage
+7. shipped app surfaces
 
 These concerns must remain explicit.
 
@@ -26,6 +27,8 @@ trinity/
   core/
     trinity_core/
       adapters/
+        model/
+        product/
       ops/
       runtime.py
       schemas/
@@ -59,7 +62,22 @@ Canonical runtime contracts:
 
 ### `core/trinity_core/adapters/`
 
-Adapter declarations and future product adapter packages.
+Adapter declarations and future model and product adapter packages.
+
+### `core/trinity_core/adapters/model/`
+
+Provider-neutral model capability implementations.
+
+This layer is where backend-specific invocation belongs:
+
+- provider routing
+- structured chat execution
+- model inventory and capability discovery
+- provider process or transport details
+
+Workflow modules may depend on the capability contract exposed by this layer, but may not depend on provider-specific request formats.
+
+### `core/trinity_core/adapters/product/`
 
 This layer is where product-specific mapping belongs:
 
@@ -115,6 +133,7 @@ Runtime data belongs in machine-local storage outside the working tree, includin
 That means:
 
 - core runtime code may not assume `{reply}` semantics by default
+- core runtime code may not assume Ollama semantics by default
 - adapter-specific code may exist, but it must be isolated and named as adapter code
 - compatibility aliases are acceptable when they preserve a stable downstream integration contract
 
