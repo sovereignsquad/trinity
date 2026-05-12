@@ -6,19 +6,22 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from trinity_core.memory.storage import ReplyMemoryStore
 from trinity_core.model_config import TrinityReplyModelConfig, TrinityRoleRoute
-from trinity_core.ops.cycle_store import RuntimeCyclePaths, RuntimeCycleStore
+from trinity_core.ops.cycle_store import RuntimeCyclePaths, RuntimeCycleStore, dataclass_payload
 from trinity_core.ops.reply_policy_store import ReplyPolicyStore, ReplyPolicyStorePaths
 from trinity_core.reply_runtime import ReplyRuntime
 from trinity_core.schemas import (
     AcceptedArtifactVersion,
     CandidateLineage,
     CandidateRecord,
+    CandidateScoreProfile,
     CandidateScores,
     CandidateState,
     CandidateType,
     DraftOutcomeDisposition,
     DraftOutcomeEvent,
+    MemorySummary,
     RankedDraftSet,
     ReplyBehaviorPolicy,
     ReplyBehaviorScopeKind,
@@ -29,12 +32,79 @@ from trinity_core.schemas import (
     ReplyFeedbackDisposition,
     ReplyFeedbackEvent,
     ReplyTonePreferences,
+    ScoreDimensionProfile,
+    ScoreFactor,
     ThreadContextSnippet,
     ThreadMessageRole,
     ThreadMessageSnapshot,
     ThreadSnapshot,
     TrainingBundleType,
 )
+
+
+def test_candidate_scores_can_round_trip_score_profile_payload() -> None:
+    scores = CandidateScores(
+        impact=8,
+        confidence=7,
+        ease=6,
+        score_profile={
+            "impact": {
+                "rationale": "This work is highly aligned to the active revenue goal.",
+                "factors": [
+                    {
+                        "name": "strategic_alignment",
+                        "value": 0.95,
+                        "rationale": "Matches the active revenue goal.",
+                        "evidence_anchors": ["generator:evidence:1"],
+                    }
+                ],
+                "provenance": "generator",
+            },
+            "confidence": ScoreDimensionProfile(
+                rationale="The evidence directly supports the account-risk claim.",
+                factors=(
+                    ScoreFactor(
+                        name="source_support",
+                        value=0.7,
+                        rationale="Evidence directly mentions the account risk.",
+                    ),
+                ),
+                provenance="evaluator",
+            ),
+            "delivery_difficulty": {
+                "rationale": "No external approvals are required for the first action.",
+                "factors": [
+                    {
+                        "name": "dependency_load",
+                        "value": 0.2,
+                        "rationale": "No external approvals are required.",
+                    }
+                ],
+                "provenance": "generator",
+            },
+            "provenance": "runtime-test",
+        },
+    )
+
+    assert isinstance(scores.score_profile, CandidateScoreProfile)
+    assert scores.score_profile is not None
+    assert scores.score_profile.impact is not None
+    assert scores.score_profile.impact.factors[0].name == "strategic_alignment"
+    assert scores.score_profile.impact.rationale == (
+        "This work is highly aligned to the active revenue goal."
+    )
+    assert scores.score_profile.confidence is not None
+    assert scores.score_profile.confidence.factors[0].name == "source_support"
+    assert scores.delivery_difficulty == 6
+
+    payload = dataclass_payload(scores)
+
+    assert payload["score_profile"]["provenance"] == "runtime-test"
+    assert payload["score_profile"]["impact"]["factors"][0]["name"] == "strategic_alignment"
+    assert payload["score_profile"]["confidence"]["factors"][0]["name"] == "source_support"
+    assert payload["score_profile"]["impact"]["rationale"] == (
+        "This work is highly aligned to the active revenue goal."
+    )
 
 
 def test_reply_draft_candidate_can_be_built_from_runtime_candidate() -> None:
@@ -234,6 +304,82 @@ def test_reply_runtime_persists_cycle_and_feedback(tmp_path: Path) -> None:
     )
     assert any(summary.metadata.get("family") == "successful_pattern" for summary in summaries)
     assert any(summary.metadata.get("family") == "human_resolution" for summary in summaries)
+
+
+def test_reply_runtime_persists_memory_similarity_score_factors(tmp_path: Path) -> None:
+    store = RuntimeCycleStore(
+        RuntimeCyclePaths(
+            adapter_name="reply",
+            root_dir=tmp_path,
+            cycles_dir=tmp_path / "cycles",
+            exports_dir=tmp_path / "exports",
+        )
+    )
+    memory_store = ReplyMemoryStore(db_path=tmp_path / "runtime_memory.sqlite3")
+    runtime = ReplyRuntime(store=store, memory_store=memory_store)
+    runtime.store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    runtime.store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+
+    company_id = uuid4()
+    occurred_at = datetime(2026, 5, 1, 11, 30, tzinfo=UTC)
+    memory_store.save_summary(
+        MemorySummary(
+            company_id=company_id,
+            summary_key="success_pattern",
+            scope_ref=f"company:{company_id}",
+            content=(
+                "A concise direct reply that sends updated numbers today usually performs well."
+            ),
+            updated_at=occurred_at,
+            metadata={"family": "successful_pattern"},
+        )
+    )
+    memory_store.save_summary(
+        MemorySummary(
+            company_id=company_id,
+            summary_key="anti_pattern",
+            scope_ref=f"company:{company_id}",
+            content="Avoid vague confirmation requests when the update can be sent immediately.",
+            updated_at=occurred_at,
+            metadata={"family": "anti_pattern"},
+        )
+    )
+
+    snapshot = ThreadSnapshot(
+        company_id=company_id,
+        thread_ref="reply:linkedin:alice",
+        channel="linkedin",
+        contact_handle="linkedin://alice",
+        latest_inbound_text="Can you send the updated numbers today?",
+        requested_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+        messages=(
+            ThreadMessageSnapshot(
+                message_id="msg-1",
+                role=ThreadMessageRole.CONTACT,
+                text="Can you send the updated numbers today?",
+                occurred_at=datetime(2026, 5, 1, 11, 59, tzinfo=UTC),
+                channel="linkedin",
+                source="linkedin",
+                handle="linkedin://alice",
+            ),
+        ),
+    )
+
+    ranked = runtime.suggest(snapshot)
+    payload = runtime.store.load_cycle(ranked.cycle_id)
+    score_profile = payload["candidates"][0]["scores"]["score_profile"]
+
+    assert score_profile["provenance"]
+    assert score_profile["impact"]["rationale"]
+    assert score_profile["confidence"]["rationale"]
+    assert any(
+        factor["name"] == "success_similarity"
+        for factor in score_profile["impact"]["factors"]
+    )
+    assert any(
+        factor["name"] in {"trust_similarity", "failure_similarity", "novelty_penalty"}
+        for factor in score_profile["confidence"]["factors"]
+    )
 
 
 def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path) -> None:

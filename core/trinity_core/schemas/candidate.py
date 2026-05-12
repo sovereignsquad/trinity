@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 
@@ -48,8 +50,72 @@ class CandidateLineage:
 
 
 @dataclass(frozen=True, slots=True)
+class ScoreFactor:
+    """One explicit sub-signal contributing to a headline candidate score."""
+
+    name: str
+    value: float
+    rationale: str = ""
+    evidence_anchors: tuple[str, ...] = ()
+    provenance: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("Score factors require a non-empty name.")
+        if not math.isfinite(float(self.value)):
+            raise ValueError("Score factor values must be finite numbers.")
+        object.__setattr__(
+            self,
+            "evidence_anchors",
+            tuple(str(anchor).strip() for anchor in self.evidence_anchors if str(anchor).strip()),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreDimensionProfile:
+    """Factor bundle and provenance for one headline score dimension."""
+
+    factors: tuple[ScoreFactor, ...] = ()
+    rationale: str = ""
+    evidence_anchors: tuple[str, ...] = ()
+    provenance: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "factors", tuple(_score_factor(item) for item in self.factors))
+        object.__setattr__(
+            self,
+            "evidence_anchors",
+            tuple(str(anchor).strip() for anchor in self.evidence_anchors if str(anchor).strip()),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateScoreProfile:
+    """Explicit factor-level profile behind candidate headline scores."""
+
+    impact: ScoreDimensionProfile | None = None
+    confidence: ScoreDimensionProfile | None = None
+    delivery_difficulty: ScoreDimensionProfile | None = None
+    provenance: str = ""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "impact", _score_dimension(self.impact))
+        object.__setattr__(self, "confidence", _score_dimension(self.confidence))
+        object.__setattr__(
+            self,
+            "delivery_difficulty",
+            _score_dimension(self.delivery_difficulty),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateScores:
-    """Scoring dimensions used across generation, evaluation, and ranking."""
+    """Scoring dimensions used across generation, evaluation, and ranking.
+
+    Compatibility note:
+    `ease` remains the persisted public field, but its intended runtime meaning is
+    delivery difficulty rather than generic textual convenience.
+    """
 
     impact: int
     confidence: int
@@ -58,15 +124,23 @@ class CandidateScores:
     urgency_score: float | None = None
     freshness_score: float | None = None
     feedback_score: float = 0.0
+    score_profile: CandidateScoreProfile | None = None
 
     def __post_init__(self) -> None:
         for value in (self.impact, self.confidence, self.ease):
             if value < 1 or value > 10:
                 raise ValueError("Impact, confidence, and ease must be between 1 and 10.")
+        object.__setattr__(self, "score_profile", _score_profile(self.score_profile))
 
     @property
     def ice_score(self) -> int:
         return self.impact * self.confidence * self.ease
+
+    @property
+    def delivery_difficulty(self) -> int:
+        """Compatibility-preserving semantic alias for the third headline score."""
+
+        return self.ease
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,3 +199,47 @@ class CandidateRecord:
             raise ValueError("Knowledge candidates cannot track delivery timestamps.")
         if self.candidate_type != CandidateType.ACTION and self.delivery_target_ref is not None:
             raise ValueError("Knowledge candidates cannot carry delivery targets.")
+
+
+def _score_factor(value: ScoreFactor | dict[str, Any]) -> ScoreFactor:
+    if isinstance(value, ScoreFactor):
+        return value
+    if isinstance(value, dict):
+        return ScoreFactor(
+            name=str(value.get("name") or ""),
+            value=float(value.get("value") or 0.0),
+            rationale=str(value.get("rationale") or ""),
+            evidence_anchors=tuple(value.get("evidence_anchors", ())),
+            provenance=str(value.get("provenance") or ""),
+        )
+    raise TypeError("Score factors must be ScoreFactor instances or dict payloads.")
+
+
+def _score_dimension(
+    value: ScoreDimensionProfile | dict[str, Any] | None,
+) -> ScoreDimensionProfile | None:
+    if value is None or isinstance(value, ScoreDimensionProfile):
+        return value
+    if isinstance(value, dict):
+        return ScoreDimensionProfile(
+            factors=tuple(value.get("factors", ())),
+            rationale=str(value.get("rationale") or ""),
+            evidence_anchors=tuple(value.get("evidence_anchors", ())),
+            provenance=str(value.get("provenance") or ""),
+        )
+    raise TypeError("Score dimension profiles must be ScoreDimensionProfile or dict payloads.")
+
+
+def _score_profile(
+    value: CandidateScoreProfile | dict[str, Any] | None,
+) -> CandidateScoreProfile | None:
+    if value is None or isinstance(value, CandidateScoreProfile):
+        return value
+    if isinstance(value, dict):
+        return CandidateScoreProfile(
+            impact=value.get("impact"),
+            confidence=value.get("confidence"),
+            delivery_difficulty=value.get("delivery_difficulty"),
+            provenance=str(value.get("provenance") or ""),
+        )
+    raise TypeError("score_profile must be CandidateScoreProfile or dict payload.")

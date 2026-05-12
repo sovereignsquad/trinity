@@ -27,6 +27,7 @@ from trinity_core.adapters.product.reply.payloads import (
 from trinity_core.memory import (
     ReplyMemoryResolver,
     ReplyMemoryStore,
+    apply_memory_similarity_signals,
     build_runtime_memory_profile,
 )
 from trinity_core.model_config import load_model_config
@@ -108,6 +109,8 @@ The 3 options must be materially different strategies:
 2. advance with next step
 3. clarify or risk-manage
 Each candidate must contain: title, content, impact, confidence, ease, tags.
+Interpret `ease` as delivery difficulty: lower means harder to realize in the real world,
+not merely shorter to write.
 Use one of these tags in every candidate: direct, advance, clarify.
 Keep content plain text, no markdown, no surrounding commentary.
 """.strip()
@@ -116,6 +119,7 @@ REFINER_SYSTEM_PROMPT = """
 You are Trinity's writing refiner.
 Rewrite the provided draft into a polished final candidate while preserving intent.
 Return strict JSON with: title, content, impact, confidence, ease, tags, reason.
+Interpret `ease` as delivery difficulty, not textual convenience.
 Keep content plain text, concise, natural, and operator-safe.
 """.strip()
 
@@ -126,6 +130,8 @@ Return strict JSON with an `evaluations` array.
 Each evaluation must contain:
 candidate_id, disposition, impact, confidence, ease, quality_score, urgency_score,
 freshness_score, feedback_score, reason.
+Interpret `ease` as delivery difficulty: dependency burden, coordination load, and
+execution complexity.
 Use only dispositions ELIGIBLE or REVISE.
 """.strip()
 
@@ -198,6 +204,16 @@ class ReplyRuntime:
                 memory_profile,
             ),
             now=cycle_time,
+        )
+        pipeline = replace(
+            pipeline,
+            evaluated=replace(
+                pipeline.evaluated,
+                records=tuple(
+                    apply_memory_similarity_signals(candidate, memory_context)
+                    for candidate in pipeline.evaluated.records
+                ),
+            ),
         )
         frontier = build_frontier(pipeline.evaluated.records, limit=3)
         surfaced_frontier = _build_surfaced_frontier(

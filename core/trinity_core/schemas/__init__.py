@@ -3,10 +3,13 @@
 from .candidate import (
     CandidateLineage,
     CandidateRecord,
+    CandidateScoreProfile,
     CandidateScores,
     CandidateState,
     CandidateType,
     ReworkRoute,
+    ScoreDimensionProfile,
+    ScoreFactor,
 )
 from .control_plane import (
     ControlPlaneJob,
@@ -132,6 +135,7 @@ from .spot_policy import (
 __all__ = [
     "CandidateLineage",
     "CandidateDraft",
+    "CandidateScoreProfile",
     "CandidateRecord",
     "CandidateScores",
     "CandidateState",
@@ -182,6 +186,8 @@ __all__ = [
     "RankedDraftSet",
     "ReworkRoute",
     "RuntimeTraceExport",
+    "ScoreDimensionProfile",
+    "ScoreFactor",
     "SPOT_CONTRACT_VERSION",
     "SPOT_TRAINING_BUNDLE_CONTRACT_VERSION",
     "PreparedDraftSet",
