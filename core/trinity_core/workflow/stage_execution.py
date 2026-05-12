@@ -10,6 +10,7 @@ from uuid import UUID
 
 from trinity_core.schemas import (
     CandidateRecord,
+    CandidateScoreProfile,
     CandidateScores,
     CandidateState,
     CandidateType,
@@ -93,7 +94,9 @@ class RawGeneratedCandidate:
     impact: int
     confidence: int
     ease: int
+    score_profile: CandidateScoreProfile | None = None
     semantic_tags: tuple[str, ...] = ()
+    delivery_difficulty: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +122,9 @@ class RawRefinerResult:
     impact: int | None = None
     confidence: int | None = None
     ease: int | None = None
+    score_profile: CandidateScoreProfile | None = None
     semantic_tags: tuple[str, ...] | None = None
+    delivery_difficulty: int | None = None
     source_candidate_ids: tuple[str, ...] = ()
     reason: str | None = None
 
@@ -153,6 +158,8 @@ class RawEvaluationResult:
     feedback_score: float
     reason: str
     rework_route: ReworkRoute | None = None
+    score_profile: CandidateScoreProfile | None = None
+    delivery_difficulty: int | None = None
 
 
 GeneratorRunner = Callable[[GeneratorExecutionInput], Iterable[RawGeneratedCandidate]]
@@ -186,6 +193,7 @@ def _normalize_scores(
     urgency_score: float | None = None,
     freshness_score: float | None = None,
     feedback_score: float = 0.0,
+    score_profile: CandidateScoreProfile | None = None,
 ) -> CandidateScores:
     return CandidateScores(
         impact=max(1, min(10, impact)),
@@ -195,7 +203,14 @@ def _normalize_scores(
         urgency_score=_clamp_float(urgency_score) if urgency_score is not None else None,
         freshness_score=_clamp_float(freshness_score) if freshness_score is not None else None,
         feedback_score=_clamp_float(feedback_score),
+        score_profile=score_profile,
     )
+
+
+def _delivery_difficulty_value(ease: int, delivery_difficulty: int | None) -> int:
+    if delivery_difficulty is None:
+        return ease
+    return delivery_difficulty
 
 
 def _clamp_float(value: float) -> float:
@@ -246,7 +261,8 @@ def run_generator_stage(
                 scores=_normalize_scores(
                     impact=raw.impact,
                     confidence=raw.confidence,
-                    ease=raw.ease,
+                    ease=_delivery_difficulty_value(raw.ease, raw.delivery_difficulty),
+                    score_profile=raw.score_profile,
                 ),
                 semantic_tags=_normalize_tags(raw.semantic_tags),
                 now=stage_time,
@@ -305,11 +321,19 @@ def run_refiner_stage(
                 confidence=(
                     raw.confidence if raw.confidence is not None else parent.scores.confidence
                 ),
-                ease=raw.ease if raw.ease is not None else parent.scores.ease,
+                ease=_delivery_difficulty_value(
+                    raw.ease if raw.ease is not None else parent.scores.ease,
+                    raw.delivery_difficulty,
+                ),
                 quality_score=parent.scores.quality_score,
                 urgency_score=parent.scores.urgency_score,
                 freshness_score=parent.scores.freshness_score,
                 feedback_score=parent.scores.feedback_score,
+                score_profile=(
+                    raw.score_profile
+                    if raw.score_profile is not None
+                    else parent.scores.score_profile
+                ),
             )
             source_candidate_ids = tuple(
                 (
@@ -387,7 +411,12 @@ def run_evaluator_stage(
                 scores=_normalize_scores(
                     impact=raw.impact,
                     confidence=raw.confidence,
-                    ease=raw.ease,
+                    ease=_delivery_difficulty_value(raw.ease, raw.delivery_difficulty),
+                    score_profile=(
+                        raw.score_profile
+                        if raw.score_profile is not None
+                        else candidate.scores.score_profile
+                    ),
                     quality_score=raw.quality_score,
                     urgency_score=raw.urgency_score,
                     freshness_score=raw.freshness_score,

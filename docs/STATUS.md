@@ -19,6 +19,12 @@ Current phase:
 - a concrete third-app preparation plan now exists so the next downstream adapter can land through the current seam without another round of architecture cleanup
 - local install documentation now explicitly covers required versus optional dependencies so a fresh checkout can install the runtime, CLI, and macOS shell without prior repository context
 - generic adapter registration and runtime dispatch are now descriptor-driven rather than hardcoded branch wiring, and the top-level docs now explicitly position new downstream apps as new adapters rather than Reply variants
+- a Trinity-native scoring-architecture review note now exists at `docs/SCORING_ARCHITECTURE_NOTE.md`, capturing which factorized scoring, history-aware calibration, similarity-to-history, and score-audit ideas are worth borrowing without collapsing product semantics into core workflow
+- the scoring review has now been translated into a concrete GitHub implementation lane: issue `#66` is the next contract-first tranche for factorized score profiles, issues `#67` to `#69` capture the near-term follow-ons for similarity, delivery-difficulty semantics, and per-dimension rationale, and issue `#70` holds the later score-audit pipeline work; related memory prerequisites `#42` and `#41` are now placed on the org board as part of the same planning chain
+- the first bounded implementation slice of issue `#66` is now landed: `CandidateScores` can carry an optional nested score-profile contract with factor-level sub-signals and provenance, stage execution preserves that profile across generator/refiner/evaluator flows, and the existing trace/export serialization path can now persist the richer score payload without breaking current adapters
+- the first bounded implementation slice of issue `#67` is now landed: Trinity can derive deterministic family-based similarity signals from retrieved runtime memory and merge them into candidate score profiles, and Reply now persists those similarity factors in evaluated candidate payloads before frontier ranking and trace export
+- the first bounded implementation slices of issues `#68` and `#69` are now landed: the runtime now treats `ease` as a compatibility-preserving alias for delivery difficulty, stage outputs can provide explicit `delivery_difficulty` values without breaking existing `ease` payloads, and score profiles now preserve dimension-level rationale strings alongside factor-level evidence anchors
+- the first bounded implementation slice of issue `#70` is now landed: Trinity can preserve proposed headline scores, apply deterministic audit flags and calibration notes, and persist calibrated score state before frontier ranking when repeated tuples, weak support, novelty, failure history, disagreement, or unsupported high claims trigger bounded penalties
 
 Primary active lane:
 
@@ -53,6 +59,10 @@ The repository currently has:
 - holdout-by-default policy review and acceptance flows, with explicit no-holdout override mode for local/dev use
 - richer promotion review surface carrying acceptance mode and Train provenance in inspectable output
 - training bundles now preserve surfaced and filtered negative candidates, stage evidence anchors, model routes, and policy-resolution summaries for hermetic offline learning
+- candidate scoring contracts now also support optional nested factor profiles for `impact`, `confidence`, and delivery-difficulty semantics, with JSON-round-trippable schema normalization from dataclass or persisted dict payloads
+- Reply runtime candidate evaluation now also carries memory-derived `success`, `failure`, `correction`, `disagreement`, `human-resolution`, and `novelty` similarity signals in the score profile when retrieved memory supports them
+- dimension-level score-profile rationale is now first-class for `impact`, `confidence`, and `delivery_difficulty`, and persisted traces can carry those rationales through the existing cycle/export serialization path
+- calibrated candidate payloads can now preserve both proposed and final headline score tuples, along with audit flags and calibration notes, so trace exports can distinguish proposal state from calibrated runtime judgment
 - policy resolution is now explainable through explicit resolution-path payloads instead of implicit scope fallback only
 - policy review decisions can now be persisted as lineage-bearing review artifacts and linked from accepted artifact pointers
 - focused design note documenting why the Train promotion seam now works
@@ -178,3 +188,9 @@ Verified locally in the current tranche:
 6. deepen Spot artifact families beyond `spot_review_policy` while preserving the new company-scoped isolation boundary
 7. keep the Train proposal seam explicit and bounded; use the richer bundle labels and memory summaries for offline learning, but do not let it bypass runtime acceptance or become a live-learning shortcut
 8. preserve explicit artifact promotion, rollback, provenance, and holdout review rules while the core runtime expands
+9. turn the scoring-architecture note into contract work by adding explicit factor-level score profiles, memory-derived similarity signals, and score-audit rules before attempting prompt-only score tuning
+10. execute the scoring lane in issue order `#66 -> #67/#68/#69 -> #70`, keeping `#42` as the near-term memory metadata prerequisite and `#41` as the later memory-governance follow-on
+11. use the newly landed `#66` contract seam as the base for `#67`, so similarity-to-history signals can land as explicit score-profile inputs rather than another prompt-only heuristic layer
+12. use the now-landed `#67` similarity seam as the base for later calibration work, keeping the next critical-path focus on score semantics (`#68`) and per-dimension rationale (`#69`) before the audit pipeline (`#70`)
+13. deepen `#68` and `#69` from their bounded contract slices into richer operational semantics and stronger adapter-owned rationale generation before starting the broader calibration/audit work in `#70`
+14. deepen the new `#70` audit slice from its deterministic first pass into broader replay-visible calibration governance, but keep proposed-vs-calibrated state explicit and bounded

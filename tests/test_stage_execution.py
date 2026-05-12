@@ -4,10 +4,13 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from trinity_core.schemas import (
+    CandidateScoreProfile,
     CandidateState,
     CandidateType,
     EvidenceSourceRef,
     EvidenceSourceType,
+    ScoreDimensionProfile,
+    ScoreFactor,
 )
 from trinity_core.workflow import (
     EvaluationDisposition,
@@ -40,6 +43,39 @@ def test_pipeline_executes_stages_as_distinct_contracts() -> None:
                 impact=8,
                 confidence=7,
                 ease=6,
+                score_profile=CandidateScoreProfile(
+                    impact=ScoreDimensionProfile(
+                        factors=(
+                            ScoreFactor(
+                                name="strategic_alignment",
+                                value=0.9,
+                                rationale="Protecting expansion revenue is a current goal.",
+                            ),
+                        ),
+                        provenance="generator",
+                    ),
+                    confidence=ScoreDimensionProfile(
+                        factors=(
+                            ScoreFactor(
+                                name="evidence_density",
+                                value=0.7,
+                                rationale="One direct evidence unit supports the claim.",
+                            ),
+                        ),
+                        provenance="generator",
+                    ),
+                    delivery_difficulty=ScoreDimensionProfile(
+                        factors=(
+                            ScoreFactor(
+                                name="coordination_burden",
+                                value=0.3,
+                                rationale="No cross-team dependency is required yet.",
+                            ),
+                        ),
+                        provenance="generator",
+                    ),
+                    provenance="generator",
+                ),
                 semantic_tags=("Revenue", " Revenue ", "expansion"),
             ),
         )
@@ -105,6 +141,12 @@ def test_pipeline_executes_stages_as_distinct_contracts() -> None:
     )
     assert pipeline.evaluated.records[0].state == CandidateState.EVALUATED
     assert pipeline.evaluated.records[0].scores.quality_score == 88.0
+    assert pipeline.evaluated.records[0].scores.score_profile is not None
+    assert pipeline.evaluated.records[0].scores.score_profile.impact is not None
+    assert (
+        pipeline.evaluated.records[0].scores.score_profile.impact.factors[0].name
+        == "strategic_alignment"
+    )
 
 
 def test_generator_stage_surfaces_invalid_raw_output() -> None:
@@ -193,6 +235,53 @@ def test_evaluator_rework_disposition_maps_to_lifecycle_route() -> None:
     candidate = pipeline.evaluated.records[0]
     assert candidate.state == CandidateState.REWORK
     assert str(candidate.rework_route) == "REGENERATE"
+
+
+def test_delivery_difficulty_alias_can_override_ease_in_stage_outputs() -> None:
+    evidence = _make_evidence()
+
+    pipeline = execute_candidate_pipeline(
+        GeneratorExecutionInput(company_id=evidence.company_id, evidence_units=(evidence,)),
+        generator_runner=lambda _stage_input: (
+            RawGeneratedCandidate(
+                candidate_type=CandidateType.ACTION,
+                title="Schedule rollout review",
+                content="Schedule a rollout review across the revenue and support teams.",
+                source_evidence_ids=(str(evidence.evidence_id),),
+                impact=7,
+                confidence=6,
+                ease=9,
+                delivery_difficulty=4,
+            ),
+        ),
+        refiner_runner=lambda stage_input: (
+            RawRefinerResult(
+                disposition=RefinerDisposition.REFINE,
+                parent_candidate_id=str(stage_input.generated_candidates[0].candidate_id),
+            ),
+        ),
+        evaluator_runner=lambda stage_input: (
+            RawEvaluationResult(
+                candidate_id=str(stage_input.refined_candidates[0].candidate_id),
+                disposition=EvaluationDisposition.ELIGIBLE,
+                impact=7,
+                confidence=6,
+                ease=9,
+                delivery_difficulty=5,
+                quality_score=80.0,
+                urgency_score=70.0,
+                freshness_score=65.0,
+                feedback_score=0.0,
+                reason="Coordination burden lowers delivery ease.",
+            ),
+        ),
+        now=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+    )
+
+    assert pipeline.generated.records[0].scores.ease == 4
+    assert pipeline.generated.records[0].scores.delivery_difficulty == 4
+    assert pipeline.evaluated.records[0].scores.ease == 5
+    assert pipeline.evaluated.records[0].scores.delivery_difficulty == 5
 
 
 def _make_evidence():
