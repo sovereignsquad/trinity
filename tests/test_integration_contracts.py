@@ -368,6 +368,7 @@ def test_reply_runtime_persists_memory_similarity_score_factors(tmp_path: Path) 
     ranked = runtime.suggest(snapshot)
     payload = runtime.store.load_cycle(ranked.cycle_id)
     score_profile = payload["candidates"][0]["scores"]["score_profile"]
+    calibrated_scores = payload["candidates"][0]["scores"]
 
     assert score_profile["provenance"]
     assert score_profile["impact"]["rationale"]
@@ -380,6 +381,8 @@ def test_reply_runtime_persists_memory_similarity_score_factors(tmp_path: Path) 
         factor["name"] in {"trust_similarity", "failure_similarity", "novelty_penalty"}
         for factor in score_profile["confidence"]["factors"]
     )
+    assert calibrated_scores["proposed_scores"] is not None
+    assert calibrated_scores["audit_flags"]
 
 
 def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path) -> None:

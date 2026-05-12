@@ -89,6 +89,7 @@ from trinity_core.workflow import (
     apply_reply_feedback,
     build_frontier,
     build_hitl_escalation,
+    calibrate_candidate_scores,
     decide_loop_action,
     execute_candidate_pipeline,
     frontier_score,
@@ -213,6 +214,13 @@ class ReplyRuntime:
                     apply_memory_similarity_signals(candidate, memory_context)
                     for candidate in pipeline.evaluated.records
                 ),
+            ),
+        )
+        pipeline = replace(
+            pipeline,
+            evaluated=replace(
+                pipeline.evaluated,
+                records=calibrate_candidate_scores(pipeline.evaluated.records),
             ),
         )
         frontier = build_frontier(pipeline.evaluated.records, limit=3)

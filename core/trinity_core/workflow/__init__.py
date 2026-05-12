@@ -18,6 +18,7 @@ from .evidence_ingestion import (
 )
 from .feedback_memory import apply_reply_feedback
 from .frontier import FrontierEntry, build_frontier, frontier_score
+from .score_audit import calibrate_candidate_scores
 from .stage_execution import (
     CandidatePipelineResult,
     EvaluationDisposition,
@@ -64,6 +65,7 @@ __all__ = [
     "StageExecutionResult",
     "StageFailure",
     "canonicalize_content",
+    "calibrate_candidate_scores",
     "compute_content_hash",
     "decide_loop_action_from_signals",
     "fork_candidate_version",

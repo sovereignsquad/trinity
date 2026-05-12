@@ -109,6 +109,24 @@ class CandidateScoreProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class HeadlineScoreSnapshot:
+    """One explicit top-line score tuple preserved before calibration."""
+
+    impact: int
+    confidence: int
+    ease: int
+
+    def __post_init__(self) -> None:
+        for value in (self.impact, self.confidence, self.ease):
+            if value < 1 or value > 10:
+                raise ValueError("Headline scores must be between 1 and 10.")
+
+    @property
+    def delivery_difficulty(self) -> int:
+        return self.ease
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateScores:
     """Scoring dimensions used across generation, evaluation, and ranking.
 
@@ -125,12 +143,26 @@ class CandidateScores:
     freshness_score: float | None = None
     feedback_score: float = 0.0
     score_profile: CandidateScoreProfile | None = None
+    proposed_scores: HeadlineScoreSnapshot | None = None
+    audit_flags: tuple[str, ...] = ()
+    calibration_notes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for value in (self.impact, self.confidence, self.ease):
             if value < 1 or value > 10:
                 raise ValueError("Impact, confidence, and ease must be between 1 and 10.")
         object.__setattr__(self, "score_profile", _score_profile(self.score_profile))
+        object.__setattr__(self, "proposed_scores", _headline_scores(self.proposed_scores))
+        object.__setattr__(
+            self,
+            "audit_flags",
+            tuple(str(flag).strip() for flag in self.audit_flags if str(flag).strip()),
+        )
+        object.__setattr__(
+            self,
+            "calibration_notes",
+            tuple(str(note).strip() for note in self.calibration_notes if str(note).strip()),
+        )
 
     @property
     def ice_score(self) -> int:
@@ -243,3 +275,17 @@ def _score_profile(
             provenance=str(value.get("provenance") or ""),
         )
     raise TypeError("score_profile must be CandidateScoreProfile or dict payload.")
+
+
+def _headline_scores(
+    value: HeadlineScoreSnapshot | dict[str, Any] | None,
+) -> HeadlineScoreSnapshot | None:
+    if value is None or isinstance(value, HeadlineScoreSnapshot):
+        return value
+    if isinstance(value, dict):
+        return HeadlineScoreSnapshot(
+            impact=int(value.get("impact") or 0),
+            confidence=int(value.get("confidence") or 0),
+            ease=int(value.get("ease") or 0),
+        )
+    raise TypeError("proposed_scores must be HeadlineScoreSnapshot or dict payload.")

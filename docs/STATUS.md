@@ -24,6 +24,7 @@ Current phase:
 - the first bounded implementation slice of issue `#66` is now landed: `CandidateScores` can carry an optional nested score-profile contract with factor-level sub-signals and provenance, stage execution preserves that profile across generator/refiner/evaluator flows, and the existing trace/export serialization path can now persist the richer score payload without breaking current adapters
 - the first bounded implementation slice of issue `#67` is now landed: Trinity can derive deterministic family-based similarity signals from retrieved runtime memory and merge them into candidate score profiles, and Reply now persists those similarity factors in evaluated candidate payloads before frontier ranking and trace export
 - the first bounded implementation slices of issues `#68` and `#69` are now landed: the runtime now treats `ease` as a compatibility-preserving alias for delivery difficulty, stage outputs can provide explicit `delivery_difficulty` values without breaking existing `ease` payloads, and score profiles now preserve dimension-level rationale strings alongside factor-level evidence anchors
+- the first bounded implementation slice of issue `#70` is now landed: Trinity can preserve proposed headline scores, apply deterministic audit flags and calibration notes, and persist calibrated score state before frontier ranking when repeated tuples, weak support, novelty, failure history, disagreement, or unsupported high claims trigger bounded penalties
 
 Primary active lane:
 
@@ -61,6 +62,7 @@ The repository currently has:
 - candidate scoring contracts now also support optional nested factor profiles for `impact`, `confidence`, and delivery-difficulty semantics, with JSON-round-trippable schema normalization from dataclass or persisted dict payloads
 - Reply runtime candidate evaluation now also carries memory-derived `success`, `failure`, `correction`, `disagreement`, `human-resolution`, and `novelty` similarity signals in the score profile when retrieved memory supports them
 - dimension-level score-profile rationale is now first-class for `impact`, `confidence`, and `delivery_difficulty`, and persisted traces can carry those rationales through the existing cycle/export serialization path
+- calibrated candidate payloads can now preserve both proposed and final headline score tuples, along with audit flags and calibration notes, so trace exports can distinguish proposal state from calibrated runtime judgment
 - policy resolution is now explainable through explicit resolution-path payloads instead of implicit scope fallback only
 - policy review decisions can now be persisted as lineage-bearing review artifacts and linked from accepted artifact pointers
 - focused design note documenting why the Train promotion seam now works
@@ -191,3 +193,4 @@ Verified locally in the current tranche:
 11. use the newly landed `#66` contract seam as the base for `#67`, so similarity-to-history signals can land as explicit score-profile inputs rather than another prompt-only heuristic layer
 12. use the now-landed `#67` similarity seam as the base for later calibration work, keeping the next critical-path focus on score semantics (`#68`) and per-dimension rationale (`#69`) before the audit pipeline (`#70`)
 13. deepen `#68` and `#69` from their bounded contract slices into richer operational semantics and stronger adapter-owned rationale generation before starting the broader calibration/audit work in `#70`
+14. deepen the new `#70` audit slice from its deterministic first pass into broader replay-visible calibration governance, but keep proposed-vs-calibrated state explicit and bounded
