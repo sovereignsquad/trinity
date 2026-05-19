@@ -369,6 +369,7 @@ def test_reply_runtime_persists_memory_similarity_score_factors(tmp_path: Path) 
     payload = runtime.store.load_cycle(ranked.cycle_id)
     score_profile = payload["candidates"][0]["scores"]["score_profile"]
     calibrated_scores = payload["candidates"][0]["scores"]
+    score_audit = payload["runtime_score_audit"]
 
     assert score_profile["provenance"]
     assert score_profile["impact"]["rationale"]
@@ -383,6 +384,11 @@ def test_reply_runtime_persists_memory_similarity_score_factors(tmp_path: Path) 
     )
     assert calibrated_scores["proposed_scores"] is not None
     assert calibrated_scores["audit_flags"]
+    assert score_audit["candidate_count"] == len(payload["candidates"])
+    assert score_audit["flagged_candidate_count"] >= 1
+    assert score_audit["flagged_candidate_ids"]
+    assert score_audit["candidates"][0]["proposed_scores"] is not None
+    assert score_audit["candidates"][0]["final_scores"]["impact"] == calibrated_scores["impact"]
 
 
 def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path) -> None:
@@ -422,6 +428,50 @@ def test_reply_runtime_supports_cold_start_thread_without_history(tmp_path: Path
 
     assert len(ranked.drafts) == 3
     assert all(draft.draft_text for draft in ranked.drafts)
+
+
+def test_reply_runtime_loads_historical_score_tuples_from_recent_exports(tmp_path: Path) -> None:
+    runtime = ReplyRuntime(
+        store=RuntimeCycleStore(
+            RuntimeCyclePaths(
+                adapter_name="reply",
+                root_dir=tmp_path,
+                cycles_dir=tmp_path / "cycles",
+                exports_dir=tmp_path / "exports",
+            )
+        )
+    )
+    runtime.store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    runtime.store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+    company_id = uuid4()
+
+    runtime.store.save_export(
+        uuid4(),
+        {
+            "thread_snapshot": {"company_id": str(company_id)},
+            "runtime_score_audit": {
+                "candidates": [
+                    {"final_scores": {"impact": 8, "confidence": 7, "ease": 6}},
+                    {"final_scores": {"impact": 7, "confidence": 6, "ease": 5}},
+                ]
+            },
+        },
+    )
+    runtime.store.save_export(
+        uuid4(),
+        {
+            "thread_snapshot": {"company_id": str(company_id)},
+            "candidates": [
+                {"scores": {"impact": 6, "confidence": 5, "ease": 4}},
+            ],
+        },
+    )
+
+    assert runtime._historical_score_tuples(company_id) == (
+        (6, 5, 4),
+        (8, 7, 6),
+        (7, 6, 5),
+    )
 
 
 def test_reply_runtime_exports_training_bundle_from_terminal_outcome(tmp_path: Path) -> None:
@@ -959,3 +1009,5 @@ def test_reply_runtime_escalates_low_confidence_drafts_to_human_review(tmp_path:
     assert exported["bundle"]["labels"]["runtime_loop_action"] == "escalate"
     assert exported["bundle"]["labels"]["had_hitl_escalation"] == "true"
     assert exported["bundle"]["labels"]["had_minority_report"] == "true"
+    assert "model_route_details" in exported["bundle"]
+    assert exported["bundle"]["model_route_details"]["generator"]["model"] == "generator-test"

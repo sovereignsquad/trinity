@@ -126,18 +126,21 @@ def _route_file_payload() -> dict[str, object]:
                 "generator": {
                     "provider": "ollama",
                     "model": "generator-shadow",
+                    "model_id": "generator-shadow-shared",
                     "temperature": 0.2,
                     "keep_alive": "5m",
                 },
                 "refiner": {
                     "provider": "ollama",
                     "model": "refiner-shadow",
+                    "model_id": "refiner-shadow-shared",
                     "temperature": 0.2,
                     "keep_alive": "5m",
                 },
                 "evaluator": {
                     "provider": "ollama",
                     "model": "evaluator-shadow",
+                    "model_id": "evaluator-shadow-shared",
                     "temperature": 0.1,
                     "keep_alive": "5m",
                 },
@@ -149,18 +152,21 @@ def _route_file_payload() -> dict[str, object]:
                 "generator": {
                     "provider": "ollama",
                     "model": "generator-shadow",
+                    "model_id": "generator-shadow-shared",
                     "temperature": 0.2,
                     "keep_alive": "5m",
                 },
                 "refiner": {
                     "provider": "ollama",
                     "model": "refiner-shadow",
+                    "model_id": "refiner-shadow-shared",
                     "temperature": 0.2,
                     "keep_alive": "5m",
                 },
                 "evaluator": {
                     "provider": "ollama",
                     "model": "evaluator-failing",
+                    "model_id": "evaluator-failing-shared",
                     "temperature": 0.1,
                     "keep_alive": "5m",
                 },
@@ -234,3 +240,16 @@ def test_compare_providers_cli_persists_report_and_fallback_metrics(
     assert summaries["ollama-shadow"]["success_count"] == 2
     assert summaries["ollama-fallback"]["fallback_fixture_count"] == 2
     assert summaries["ollama-fallback"]["role_metrics"]["evaluator"]["failed_calls"] == 2
+    assert (
+        payload["report"]["route_summaries"][1]["route_details"]["generator"]["model_id"]
+        == "generator-shadow-shared"
+    )
+    shadow_fixture_result = next(
+        item
+        for item in payload["report"]["fixture_results"]
+        if item["route_set_id"] == "ollama-shadow"
+    )
+    assert (
+        shadow_fixture_result["model_route_details"]["generator"]["model_id"]
+        == "generator-shadow-shared"
+    )

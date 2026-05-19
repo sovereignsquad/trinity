@@ -4,6 +4,10 @@
 
 This document is the high-level overview of `{trinity}` as it exists now.
 
+Current repository release:
+
+- `0.1.4`
+
 ## System Identity
 
 `{trinity}` is a local-first runtime for converting normalized evidence into ranked, decision-ready candidates.
@@ -41,6 +45,14 @@ Current adapter support:
 
 - `reply`
 - `spot` as a bounded reasoning/review slice
+
+Current governance support:
+
+- acceptance gating from score-health artifacts
+- release-readiness reports
+- triage queue generation
+- persisted triage resolutions
+- persisted release-decision lineage
 
 Current compatibility posture:
 
@@ -81,6 +93,7 @@ What is done:
 - generic CLI exists
 - adapter-scoped storage exists
 - Reply compatibility is preserved
+- governance artifacts now extend beyond score reporting into acceptance, release, and triage workflows
 
 What remains:
 
@@ -88,6 +101,7 @@ What remains:
 - generalize shared abstractions only where two adapters require them
 - keep the Reply policy/train lane explicit until another adapter actually needs a shared promotion contract
 - keep new downstream apps on their own adapter seams rather than stretching Reply semantics
+- surface governance state directly in operator-facing status and review surfaces instead of requiring separate artifact inspection
 
 ## New App Rule
 

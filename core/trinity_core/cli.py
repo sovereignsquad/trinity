@@ -14,9 +14,14 @@ from uuid import UUID
 from trinity_core.adapters import (
     REPLY_ADAPTER_NAME,
     SUPPORTED_ADAPTER_NAME_LIST,
+    SUPPORTED_ADAPTER_NAMES,
     require_supported_adapter,
 )
-from trinity_core.adapters.model import UnsupportedModelProviderError
+from trinity_core.adapters.model import (
+    ModelInventoryError,
+    UnsupportedModelProviderError,
+    load_model_inventory,
+)
 from trinity_core.adapters.product.reply import (
     document_record_from_payload,
     memory_event_from_payload,
@@ -43,25 +48,48 @@ from trinity_core.ops import (
     GobiiTaskClientError,
     accept_reply_behavior_policy,
     accept_spot_review_policy,
+    apply_post_training_curation_decision,
+    build_cross_adapter_score_report,
     build_eval_dataset,
     build_gobii_tracked_entity_enrichment_bundle,
     build_gobii_workflow_bundle,
+    build_post_training_dataset,
+    build_post_training_dataset_split,
+    build_score_governance_dashboard_report,
+    build_score_governance_release_report,
+    build_score_governance_status_surface,
+    build_score_governance_triage_report,
+    build_score_health_report,
+    compare_score_health_reports,
     curate_eval_case_from_trace_payload,
     current_config_route_set,
     default_train_proposal_paths,
     default_train_spot_proposal_paths,
     deterministic_route_set,
+    evaluate_score_governance,
     gobii_task_normalization_request_from_payload,
     load_control_plane_job,
     load_eval_dataset,
+    load_eval_replay_report,
     load_gobii_tracked_entity_enrichment_bundle,
     load_gobii_workflow_bundle,
     load_persisted_gobii_task_record,
+    load_post_training_dataset,
     load_provider_route_sets,
     load_reply_shadow_fixtures,
+    load_score_governance_release_report,
+    load_score_governance_triage_report,
+    load_score_governance_triage_resolution,
+    load_score_health_report,
+    load_score_health_review_decision,
+    load_score_health_trend_report,
     load_spot_review_policy_file,
+    make_post_training_curation_decision,
     make_prepared_draft_refresh_job,
     make_provider_comparison_job,
+    make_score_governance_release_decision,
+    make_score_governance_triage_resolution,
+    make_score_health_review_decision,
     merge_eval_dataset_cases,
     merge_gobii_task_context,
     normalize_gobii_task_output,
@@ -70,12 +98,25 @@ from trinity_core.ops import (
     persist_gobii_task_record,
     persist_gobii_tracked_entity_enrichment_bundle,
     persist_gobii_workflow_bundle,
+    persist_post_training_curation_decision,
+    persist_post_training_dataset,
+    persist_post_training_dataset_split,
     persist_reply_policy_review_result,
+    persist_score_governance_release_decision,
+    persist_score_governance_release_report,
+    persist_score_governance_triage_report,
+    persist_score_governance_triage_resolution,
+    persist_score_health_report,
+    persist_score_health_review_decision,
+    persist_score_health_trend_report,
+    promote_post_training_dataset,
     propose_reply_policy_with_train,
     propose_spot_review_policy_with_train,
     register_gobii_workflow_bundle,
     replay_reply_eval_dataset,
+    resolve_eval_dataset_paths,
     review_reply_behavior_policy,
+    review_score_health_report,
     review_spot_review_policy,
     run_control_plane_job,
     run_reply_provider_comparison_from_fixture_dir,
@@ -83,8 +124,17 @@ from trinity_core.ops import (
     schedule_prepared_draft_refresh_jobs,
     shadow_fixture_payload,
     submit_gobii_tracked_entity_enrichment_bundle,
+    summarize_cross_adapter_score_report,
     summarize_eval_replay_report,
+    summarize_post_training_dataset,
+    summarize_post_training_dataset_split,
     summarize_reply_shadow_results,
+    summarize_score_governance_dashboard_report,
+    summarize_score_governance_release_report,
+    summarize_score_governance_status_surface,
+    summarize_score_governance_triage_report,
+    summarize_score_health_report,
+    summarize_score_health_trend_report,
 )
 from trinity_core.ops.cycle_store import RuntimeCycleStore, dataclass_payload
 from trinity_core.ops.spot_policy_store import SpotPolicyStore
@@ -93,6 +143,10 @@ from trinity_core.runtime import TrinityRuntime
 from trinity_core.schemas import (
     AcceptedArtifactVersion,
     GobiiTaskCreateRequest,
+    PostTrainingAnnotationStatus,
+    PostTrainingDatasetStatus,
+    PostTrainingPurpose,
+    ScoreGovernancePolicy,
     gobii_tracked_entity_enrichment_request_from_payload,
 )
 from trinity_core.schemas.spot_policy import SpotReviewScopeKind
@@ -119,6 +173,10 @@ COMMAND_ALIASES = {
     "reply-refresh-prepared-draft": "refresh-prepared-draft",
 }
 
+CLI_CONTRACT_VERSION = "trinity_cli.v1"
+RUNTIME_STATUS_SCHEMA_VERSION = 4
+CLI_ERROR_SCHEMA_VERSION = 1
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trinity")
@@ -129,7 +187,10 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     command = COMMAND_ALIASES.get(args.command, args.command)
-    adapter_name = require_supported_adapter(getattr(args, "adapter", REPLY_ADAPTER_NAME))
+    adapter_arg = getattr(args, "adapter", REPLY_ADAPTER_NAME)
+    adapter_name = require_supported_adapter(
+        REPLY_ADAPTER_NAME if isinstance(adapter_arg, list) else adapter_arg
+    )
     registry = AcceptedArtifactRegistry(adapter_name=adapter_name)
     runtime: TrinityRuntime | None = None
 
@@ -161,9 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "record-spot-review-outcome":
         _require_spot_adapter(adapter_name, command)
         payload = _load_json(args.input_file)
-        result = get_runtime().record_spot_review_outcome(
-            spot_review_outcome_from_payload(payload)
-        )
+        result = get_runtime().record_spot_review_outcome(spot_review_outcome_from_payload(payload))
         _write_json(result)
         return 0
 
@@ -274,6 +333,264 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if command == "report-score-health":
+        trace_payloads: list[dict[str, Any]] = []
+        cycle_store = RuntimeCycleStore(adapter_name=adapter_name)
+        for cycle_id in args.cycle_id:
+            trace_payloads.append(cycle_store.load_cycle(UUID(cycle_id)))
+        for trace_file in args.trace_file:
+            trace_payloads.append(_load_json(trace_file))
+        if not trace_payloads:
+            raise ValueError("At least one --cycle-id or --trace-file is required.")
+        if not str(args.report_name or "").strip():
+            raise ValueError("--report-name is required.")
+        report = build_score_health_report(
+            report_name=str(args.report_name),
+            adapter_name=adapter_name,
+            trace_payloads=tuple(trace_payloads),
+            metadata={"selection_reason": str(args.selection_reason or "manual_score_health")},
+        )
+        report_path = persist_score_health_report(adapter_name, report)
+        _write_json(
+            {
+                "report_path": str(report_path),
+                "report": dataclass_payload(report),
+                "summary": summarize_score_health_report(report),
+            }
+        )
+        return 0
+
+    if command == "review-score-health":
+        report = load_score_health_report(args.report_file)
+        replay_report = (
+            load_eval_replay_report(args.replay_report_file) if args.replay_report_file else None
+        )
+        review = review_score_health_report(
+            report,
+            replay_report=replay_report,
+        )
+        payload = {
+            "report_file": str(args.report_file),
+            "replay_report_file": str(args.replay_report_file) if args.replay_report_file else None,
+            "review": review,
+        }
+        if args.decision_status:
+            decision = make_score_health_review_decision(
+                report,
+                status=str(args.decision_status),
+                notes=str(args.decision_notes or ""),
+                replay_report=replay_report,
+                metadata={"review_report_file": str(args.report_file)},
+            )
+            decision_path = persist_score_health_review_decision(report.adapter_name, decision)
+            payload["decision_path"] = str(decision_path)
+            payload["decision"] = dataclass_payload(decision)
+        _write_json(payload)
+        return 0
+
+    if command == "compare-score-health":
+        if not args.report_file:
+            raise ValueError("At least one --report-file is required.")
+        reports = tuple(load_score_health_report(path) for path in args.report_file)
+        trend_report = compare_score_health_reports(
+            reports,
+            trend_report_name=str(args.trend_report_name),
+            metadata={"selection_reason": str(args.selection_reason or "manual_trend_review")},
+        )
+        trend_report_path = persist_score_health_trend_report(
+            trend_report.adapter_name,
+            trend_report,
+        )
+        _write_json(
+            {
+                "trend_report_path": str(trend_report_path),
+                "trend_report": dataclass_payload(trend_report),
+                "summary": summarize_score_health_trend_report(trend_report),
+            }
+        )
+        return 0
+
+    if command == "check-score-governance":
+        report = load_score_health_report(args.report_file)
+        decision = (
+            load_score_health_review_decision(args.decision_file) if args.decision_file else None
+        )
+        trend_report = (
+            load_score_health_trend_report(args.trend_report_file)
+            if args.trend_report_file
+            else None
+        )
+        governance = evaluate_score_governance(
+            report,
+            decision=decision,
+            trend_report=trend_report,
+            policy=_score_governance_policy_from_args(args),
+        )
+        _write_json(
+            {
+                "allowed": governance.allowed,
+                "override_required": governance.override_required,
+                "score_governance": dataclass_payload(governance),
+            }
+        )
+        return 0 if governance.allowed else 2
+
+    if command == "check-release-governance":
+        report = load_score_health_report(args.report_file)
+        decision = (
+            load_score_health_review_decision(args.decision_file) if args.decision_file else None
+        )
+        trend_report = (
+            load_score_health_trend_report(args.trend_report_file)
+            if args.trend_report_file
+            else None
+        )
+        replay_report = (
+            load_eval_replay_report(args.replay_report_file) if args.replay_report_file else None
+        )
+        governance = evaluate_score_governance(
+            report,
+            decision=decision,
+            trend_report=trend_report,
+            policy=_score_governance_policy_from_args(args),
+        )
+        release_report = build_score_governance_release_report(
+            release_report_name=str(args.release_report_name),
+            report=report,
+            governance=governance,
+            decision=decision,
+            trend_report=trend_report,
+            replay_report=replay_report,
+            metadata={"selection_reason": str(args.selection_reason or "release_governance")},
+        )
+        release_report_path = persist_score_governance_release_report(
+            report.adapter_name,
+            release_report,
+        )
+        loaded_release_report = load_score_governance_release_report(release_report_path)
+        _write_json(
+            {
+                "release_report_path": str(release_report_path),
+                "release_report": dataclass_payload(loaded_release_report),
+                "summary": summarize_score_governance_release_report(loaded_release_report),
+            }
+        )
+        return 0 if loaded_release_report.allowed else 2
+
+    if command == "list-score-governance-work":
+        paths = resolve_eval_dataset_paths(adapter_name)
+        decisions = tuple(
+            load_score_health_review_decision(path)
+            for path in sorted(paths.score_health_review_decisions_dir.glob("*.json"))
+        )
+        trend_reports = tuple(
+            load_score_health_trend_report(path)
+            for path in sorted(paths.score_health_trend_reports_dir.glob("*.json"))
+        )
+        resolutions = tuple(
+            load_score_governance_triage_resolution(path)
+            for path in sorted(paths.score_governance_triage_resolutions_dir.glob("*.json"))
+        )
+        triage_report = build_score_governance_triage_report(
+            triage_report_name=str(args.triage_report_name),
+            adapter_name=adapter_name,
+            decisions=decisions,
+            trend_reports=trend_reports,
+            resolutions=resolutions,
+            registry=AcceptedArtifactRegistry(adapter_name=adapter_name),
+            metadata={"selection_reason": str(args.selection_reason or "triage_refresh")},
+        )
+        triage_report_path = persist_score_governance_triage_report(
+            adapter_name,
+            triage_report,
+        )
+        loaded_triage_report = load_score_governance_triage_report(triage_report_path)
+        _write_json(
+            {
+                "triage_report_path": str(triage_report_path),
+                "triage_report": dataclass_payload(loaded_triage_report),
+                "summary": summarize_score_governance_triage_report(loaded_triage_report),
+            }
+        )
+        return 0
+
+    if command == "resolve-score-governance-item":
+        resolution = make_score_governance_triage_resolution(
+            adapter_name=adapter_name,
+            item_id=str(args.item_id),
+            resolution_status=str(args.resolution_status),
+            notes=str(args.notes or ""),
+        )
+        resolution_path = persist_score_governance_triage_resolution(
+            adapter_name,
+            resolution,
+        )
+        loaded_resolution = load_score_governance_triage_resolution(resolution_path)
+        _write_json(
+            {
+                "resolution_path": str(resolution_path),
+                "resolution": dataclass_payload(loaded_resolution),
+            }
+        )
+        return 0
+
+    if command == "record-release-governance-decision":
+        release_report = load_score_governance_release_report(args.release_report_file)
+        decision = make_score_governance_release_decision(
+            release_report,
+            decision_status=str(args.decision_status),
+            notes=str(args.notes or ""),
+            metadata={"release_report_file": str(args.release_report_file)},
+        )
+        decision_path = persist_score_governance_release_decision(
+            release_report.adapter_name,
+            decision,
+        )
+        _write_json(
+            {
+                "release_decision_path": str(decision_path),
+                "release_decision": dataclass_payload(decision),
+            }
+        )
+        return 0
+
+    if command == "governance-status":
+        surface = build_score_governance_status_surface(adapter_name)
+        _write_json(
+            {
+                "governance_status": dataclass_payload(surface),
+                "summary": summarize_score_governance_status_surface(surface),
+            }
+        )
+        return 0
+
+    if command == "report-cross-adapter-scores":
+        report = build_cross_adapter_score_report(
+            report_name=str(args.report_name),
+            adapter_names=tuple(args.adapter or SUPPORTED_ADAPTER_NAMES),
+            top_n=int(args.top_n),
+        )
+        _write_json(
+            {
+                "report": dataclass_payload(report),
+                "summary": summarize_cross_adapter_score_report(report),
+            }
+        )
+        return 0
+
+    if command == "report-score-governance-dashboard":
+        report = build_score_governance_dashboard_report(
+            report_name=str(args.report_name),
+            adapter_names=tuple(args.adapter or SUPPORTED_ADAPTER_NAMES),
+        )
+        _write_json(
+            {
+                "report": dataclass_payload(report),
+                "summary": summarize_score_governance_dashboard_report(report),
+            }
+        )
+        return 0
+
     if command == "export-training-bundle":
         result = get_runtime().export_training_bundle(
             UUID(args.cycle_id),
@@ -284,6 +601,109 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
         _write_json(result)
+        return 0
+
+    if command == "export-post-training-dataset":
+        if bool(args.bundle_file) == bool(args.cycle_id):
+            raise ValueError(
+                "Provide either --bundle-file or --cycle-id for export-post-training-dataset."
+            )
+        bundle_payloads: list[dict[str, Any]] = []
+        if args.bundle_file:
+            for bundle_file in args.bundle_file:
+                payload = _load_json(bundle_file)
+                bundle_payloads.append(payload)
+        else:
+            if not args.bundle_type:
+                raise ValueError("--bundle-type is required when using --cycle-id.")
+            for cycle_id in args.cycle_id:
+                exported = get_runtime().export_training_bundle(
+                    UUID(cycle_id),
+                    bundle_type=(
+                        str(args.bundle_type)
+                        if adapter_name == "spot"
+                        else training_bundle_type_from_payload(str(args.bundle_type))
+                    ),
+                )
+                bundle_payloads.append(exported["bundle"])
+        dataset = build_post_training_dataset(
+            dataset_name=str(args.dataset_name),
+            adapter_name=adapter_name,
+            bundle_payloads=tuple(bundle_payloads),
+            purposes=tuple(PostTrainingPurpose(str(item)) for item in args.purpose),
+            metadata={
+                "selection_reason": str(args.selection_reason or ""),
+            },
+        )
+        dataset_path = persist_post_training_dataset(dataset)
+        _write_json(
+            {
+                "dataset_path": str(dataset_path),
+                "dataset": dataclass_payload(dataset),
+                "summary": summarize_post_training_dataset(dataset),
+            }
+        )
+        return 0
+
+    if command == "build-post-training-split":
+        dataset = load_post_training_dataset(args.dataset_file)
+        split = build_post_training_dataset_split(
+            dataset,
+            split_name=str(args.split_name),
+            validation_ratio=float(args.validation_ratio),
+            holdout_ratio=float(args.holdout_ratio),
+            metadata={"selection_reason": str(args.selection_reason or "")},
+        )
+        split_path = persist_post_training_dataset_split(split)
+        _write_json(
+            {
+                "split_path": str(split_path),
+                "split": dataclass_payload(split),
+                "summary": summarize_post_training_dataset_split(split),
+            }
+        )
+        return 0
+
+    if command == "curate-post-training-example":
+        dataset = load_post_training_dataset(args.dataset_file)
+        decision = make_post_training_curation_decision(
+            dataset,
+            example_id=str(args.example_id),
+            annotation_status=PostTrainingAnnotationStatus(str(args.annotation_status)),
+            rationale=str(args.reason),
+        )
+        updated_dataset = apply_post_training_curation_decision(dataset, decision)
+        decision_path = persist_post_training_curation_decision(
+            updated_dataset.adapter_name,
+            decision,
+        )
+        dataset_path = persist_post_training_dataset(updated_dataset)
+        _write_json(
+            {
+                "decision_path": str(decision_path),
+                "dataset_path": str(dataset_path),
+                "decision": dataclass_payload(decision),
+                "dataset": dataclass_payload(updated_dataset),
+                "summary": summarize_post_training_dataset(updated_dataset),
+            }
+        )
+        return 0
+
+    if command == "promote-post-training-dataset":
+        dataset = load_post_training_dataset(args.dataset_file)
+        promoted = promote_post_training_dataset(
+            dataset,
+            status=PostTrainingDatasetStatus(str(args.dataset_status)),
+            rationale=str(args.reason),
+        )
+        dataset_path = persist_post_training_dataset(promoted)
+        _write_json(
+            {
+                "dataset_path": str(dataset_path),
+                "dataset": dataclass_payload(promoted),
+                "summary": summarize_post_training_dataset(promoted),
+            }
+        )
         return 0
 
     if command == "run-shadow-fixtures":
@@ -581,6 +1001,34 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "policy-accept":
         require_holdout = _resolve_holdout_requirement(args)
+        score_governance = _resolve_score_governance_check(args)
+        if score_governance is not None and not score_governance.allowed:
+            if not args.allow_score_governance_override:
+                _write_json(
+                    {
+                        "accepted": False,
+                        "reason": "Rejected: score governance requires explicit override.",
+                        "score_governance": dataclass_payload(score_governance),
+                    }
+                )
+                return 2
+            if not str(args.score_governance_override_note or "").strip():
+                raise ValueError(
+                    "--score-governance-override-note is required when overriding "
+                    "a blocked score-governance decision."
+                )
+        skeptical_notes = _policy_accept_skeptical_notes(args, score_governance)
+        governance_kwargs = _policy_accept_score_governance_kwargs(args, score_governance)
+        release_governance = _resolve_release_governance_decision(args, score_governance)
+        if release_governance is not None:
+            release_report, release_decision = release_governance
+            governance_kwargs.update(
+                {
+                    "release_governance_report_id": release_report.release_report_id,
+                    "release_governance_decision_id": release_decision.release_decision_id,
+                    "release_governance_decision_status": release_decision.decision_status,
+                }
+            )
         if adapter_name == REPLY_ADAPTER_NAME:
             result = accept_reply_behavior_policy(
                 args.policy_file,
@@ -591,7 +1039,8 @@ def main(argv: list[str] | None = None) -> int:
                 reason=args.reason,
                 source_train_project_key=args.source_train_project_key,
                 source_train_run_id=args.source_train_run_id,
-                skeptical_notes=tuple(args.skeptical_note),
+                skeptical_notes=skeptical_notes,
+                **governance_kwargs,
             )
         elif adapter_name == "spot":
             result = accept_spot_review_policy(
@@ -603,11 +1052,18 @@ def main(argv: list[str] | None = None) -> int:
                 reason=args.reason,
                 source_train_project_key=args.source_train_project_key,
                 source_train_run_id=args.source_train_run_id,
-                skeptical_notes=tuple(args.skeptical_note),
+                skeptical_notes=skeptical_notes,
+                **governance_kwargs,
             )
         else:
             raise AssertionError(f"Unhandled adapter: {adapter_name}")
-        _write_json(dataclass_payload(result))
+        payload = dataclass_payload(result)
+        if score_governance is not None:
+            payload["score_governance"] = dataclass_payload(score_governance)
+        if release_governance is not None:
+            payload["release_governance_report"] = dataclass_payload(release_governance[0])
+            payload["release_governance_decision"] = dataclass_payload(release_governance[1])
+        _write_json(payload)
         return 0 if result.accepted else 2
 
     if command == "policy-review":
@@ -654,15 +1110,15 @@ def main(argv: list[str] | None = None) -> int:
             skeptical_notes=tuple(args.skeptical_note),
         )
         result = persist_reply_policy_review_result(registry, result)
-        _write_json(_policy_review_surface_payload(result))
+        payload = _policy_review_surface_payload(result)
+        payload["governance_status"] = dataclass_payload(
+            build_score_governance_status_surface(adapter_name, registry=registry)
+        )
+        _write_json(payload)
         return 0 if result.ready_for_acceptance else 2
 
     if command == "policy-promote":
-        accepted_at = (
-            _parse_datetime(args.accepted_at)
-            if args.accepted_at
-            else datetime.now(UTC)
-        )
+        accepted_at = _parse_datetime(args.accepted_at) if args.accepted_at else datetime.now(UTC)
         artifact = AcceptedArtifactVersion(
             artifact_key=str(args.artifact_key),
             version=str(args.version),
@@ -706,11 +1162,13 @@ def main(argv: list[str] | None = None) -> int:
     if command == "policy-status":
         current = registry.current_pointer(str(args.artifact_key))
         history = registry.history(str(args.artifact_key))
+        governance_surface = build_score_governance_status_surface(adapter_name, registry=registry)
         _write_json(
             {
                 "artifact_key": str(args.artifact_key),
                 "current": current,
                 "history": [dataclass_payload(record) for record in history],
+                "governance_status": dataclass_payload(governance_surface),
             }
         )
         return 0
@@ -794,6 +1252,36 @@ def main(argv: list[str] | None = None) -> int:
         }
         if args.accept:
             require_holdout = _resolve_holdout_requirement(args)
+            score_governance = _resolve_score_governance_check(args)
+            if score_governance is not None and not score_governance.allowed:
+                if not args.allow_score_governance_override:
+                    payload["acceptance_result"] = {
+                        "accepted": False,
+                        "reason": "Rejected: score governance requires explicit override.",
+                        "score_governance": dataclass_payload(score_governance),
+                    }
+                    _write_json(payload)
+                    return 2
+                if not str(args.score_governance_override_note or "").strip():
+                    raise ValueError(
+                        "--score-governance-override-note is required when overriding "
+                        "a blocked score-governance decision."
+                    )
+            skeptical_notes = _policy_accept_skeptical_notes(args, score_governance)
+            governance_kwargs = _policy_accept_score_governance_kwargs(
+                args,
+                score_governance,
+            )
+            release_governance = _resolve_release_governance_decision(args, score_governance)
+            if release_governance is not None:
+                release_report, release_decision = release_governance
+                governance_kwargs.update(
+                    {
+                        "release_governance_report_id": release_report.release_report_id,
+                        "release_governance_decision_id": release_decision.release_decision_id,
+                        "release_governance_decision_status": release_decision.decision_status,
+                    }
+                )
             if adapter_name == REPLY_ADAPTER_NAME:
                 acceptance = accept_reply_behavior_policy(
                     train_result["proposal_path"],
@@ -804,7 +1292,8 @@ def main(argv: list[str] | None = None) -> int:
                     reason=args.reason,
                     source_train_project_key=train_result.get("train_project_key"),
                     source_train_run_id=train_result.get("train_run_id"),
-                    skeptical_notes=tuple(args.skeptical_note),
+                    skeptical_notes=skeptical_notes,
+                    **governance_kwargs,
                 )
             elif adapter_name == "spot":
                 acceptance = accept_spot_review_policy(
@@ -816,11 +1305,23 @@ def main(argv: list[str] | None = None) -> int:
                     reason=args.reason,
                     source_train_project_key=train_result.get("train_project_key"),
                     source_train_run_id=train_result.get("train_run_id"),
-                    skeptical_notes=tuple(args.skeptical_note),
+                    skeptical_notes=skeptical_notes,
+                    **governance_kwargs,
                 )
             else:
                 raise AssertionError(f"Unhandled adapter: {adapter_name}")
             payload["acceptance_result"] = dataclass_payload(acceptance)
+            if score_governance is not None:
+                payload["acceptance_result"]["score_governance"] = dataclass_payload(
+                    score_governance
+                )
+            if release_governance is not None:
+                payload["acceptance_result"]["release_governance_report"] = dataclass_payload(
+                    release_governance[0]
+                )
+                payload["acceptance_result"]["release_governance_decision"] = dataclass_payload(
+                    release_governance[1]
+                )
             _write_json(payload)
             return 0 if acceptance.accepted else 2
         _write_json(payload)
@@ -828,7 +1329,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "runtime-status":
         config = load_model_config_for_adapter(adapter_name)
+        shared_inventory_payload = _build_shared_model_inventory_payload()
         payload = {
+            "contract_version": CLI_CONTRACT_VERSION,
+            "status_schema_version": RUNTIME_STATUS_SCHEMA_VERSION,
+            "command": "runtime-status",
+            "generated_at": datetime.now(UTC).isoformat(),
             "config_path": str(config_path_for_adapter(adapter_name)),
             "adapter": adapter_name,
             "provider": config.provider,
@@ -842,6 +1348,12 @@ def main(argv: list[str] | None = None) -> int:
             "provider_status": "not_configured",
             "provider_error": None,
             "available_models": [],
+            "provider_inventory_supported": False,
+            "shared_model_inventory": {
+                key: value
+                for key, value in shared_inventory_payload.items()
+                if not key.startswith("_")
+            },
             "roles": {
                 "generator": dataclass_payload(config.generator),
                 "refiner": dataclass_payload(config.refiner),
@@ -853,11 +1365,13 @@ def main(argv: list[str] | None = None) -> int:
                 provider_runtime = get_runtime()
                 models = provider_runtime.model_provider.list_models()
                 installed_names = {str(item.get("name") or "").strip() for item in models}
+                inventory_supported = provider_runtime.model_provider.supports_model_inventory
                 payload["provider_status"] = (
                     "online"
-                    if provider_runtime.model_provider.supports_model_inventory
+                    if inventory_supported
                     else "configured"
                 )
+                payload["provider_inventory_supported"] = inventory_supported
                 payload["available_models"] = list(models)
                 for role_name, route in (
                     ("generator", config.generator),
@@ -867,6 +1381,12 @@ def main(argv: list[str] | None = None) -> int:
                     payload["roles"][role_name] = {
                         **dataclass_payload(route),
                         "installed": route.model in installed_names,
+                        **_build_role_inventory_payload(
+                            shared_inventory_payload=shared_inventory_payload,
+                            provider=payload["provider"],
+                            route_model_id=route.model_id,
+                            route_model=route.model,
+                        ),
                     }
             except UnsupportedModelProviderError as exc:
                 payload["provider_status"] = "unsupported"
@@ -879,6 +1399,12 @@ def main(argv: list[str] | None = None) -> int:
                     payload["roles"][role_name] = {
                         **dataclass_payload(route),
                         "installed": False,
+                        **_build_role_inventory_payload(
+                            shared_inventory_payload=shared_inventory_payload,
+                            provider=payload["provider"],
+                            route_model_id=route.model_id,
+                            route_model=route.model,
+                        ),
                     }
             except Exception as exc:
                 payload["provider_status"] = "offline"
@@ -891,6 +1417,12 @@ def main(argv: list[str] | None = None) -> int:
                     payload["roles"][role_name] = {
                         **dataclass_payload(route),
                         "installed": False,
+                        **_build_role_inventory_payload(
+                            shared_inventory_payload=shared_inventory_payload,
+                            provider=payload["provider"],
+                            route_model_id=route.model_id,
+                            route_model=route.model,
+                        ),
                     }
         else:
             for role_name, route in (
@@ -901,7 +1433,14 @@ def main(argv: list[str] | None = None) -> int:
                 payload["roles"][role_name] = {
                     **dataclass_payload(route),
                     "installed": False,
+                    **_build_role_inventory_payload(
+                        shared_inventory_payload=shared_inventory_payload,
+                        provider=payload["provider"],
+                        route_model_id=route.model_id,
+                        route_model=route.model,
+                    ),
                 }
+        payload["readiness"] = _build_runtime_readiness_payload(payload)
         _write_json(payload)
         return 0
 
@@ -915,9 +1454,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.mistral_cli_executable or current.mistral_cli_executable
             ),
             mistral_cli_args=tuple(
-                args.mistral_cli_arg
-                if args.mistral_cli_arg
-                else current.mistral_cli_args
+                args.mistral_cli_arg if args.mistral_cli_arg else current.mistral_cli_args
             ),
             mistral_cli_mode=str(args.mistral_cli_mode or current.mistral_cli_mode),
             mistral_cli_model_binding=str(
@@ -929,18 +1466,36 @@ def main(argv: list[str] | None = None) -> int:
                 model=str(args.generator_model or current.generator.model),
                 temperature=current.generator.temperature,
                 keep_alive=current.generator.keep_alive,
+                model_id=_resolve_cli_role_model_id(
+                    explicit_model_id=args.generator_model_id,
+                    provider=updated_provider,
+                    route_model=str(args.generator_model or current.generator.model),
+                    current_model_id=current.generator.model_id,
+                ),
             ),
             refiner=TrinityRoleRoute(
                 provider=updated_provider,
                 model=str(args.refiner_model or current.refiner.model),
                 temperature=current.refiner.temperature,
                 keep_alive=current.refiner.keep_alive,
+                model_id=_resolve_cli_role_model_id(
+                    explicit_model_id=args.refiner_model_id,
+                    provider=updated_provider,
+                    route_model=str(args.refiner_model or current.refiner.model),
+                    current_model_id=current.refiner.model_id,
+                ),
             ),
             evaluator=TrinityRoleRoute(
                 provider=updated_provider,
                 model=str(args.evaluator_model or current.evaluator.model),
                 temperature=current.evaluator.temperature,
                 keep_alive=current.evaluator.keep_alive,
+                model_id=_resolve_cli_role_model_id(
+                    explicit_model_id=args.evaluator_model_id,
+                    provider=updated_provider,
+                    route_model=str(args.evaluator_model or current.evaluator.model),
+                    current_model_id=current.evaluator.model_id,
+                ),
             ),
         )
         path = save_model_config_for_adapter(adapter_name, updated)
@@ -1062,6 +1617,129 @@ def _build_generic_parsers(subparsers: Any) -> None:
     )
     replay_eval_dataset_parser.add_argument("--dataset-file", required=True)
 
+    report_score_health_parser = subparsers.add_parser(
+        "report-score-health",
+        help="Build one aggregate score-health report from persisted runtime traces.",
+    )
+    _add_adapter_argument(report_score_health_parser)
+    report_score_health_parser.add_argument("--report-name", required=True)
+    report_score_health_parser.add_argument("--cycle-id", action="append", default=[])
+    report_score_health_parser.add_argument("--trace-file", action="append", default=[])
+    report_score_health_parser.add_argument("--selection-reason")
+
+    review_score_health_parser = subparsers.add_parser(
+        "review-score-health",
+        help="Build one operator review surface from a score-health report.",
+    )
+    review_score_health_parser.add_argument("--report-file", required=True)
+    review_score_health_parser.add_argument("--replay-report-file")
+    review_score_health_parser.add_argument("--decision-status")
+    review_score_health_parser.add_argument("--decision-notes")
+
+    compare_score_health_parser = subparsers.add_parser(
+        "compare-score-health",
+        help="Compare multiple score-health reports and persist one trend report.",
+    )
+    compare_score_health_parser.add_argument("--report-file", action="append", default=[])
+    compare_score_health_parser.add_argument("--trend-report-name", required=True)
+    compare_score_health_parser.add_argument("--selection-reason")
+
+    check_score_governance_parser = subparsers.add_parser(
+        "check-score-governance",
+        help="Evaluate score-health governance artifacts for workflow gating.",
+    )
+    check_score_governance_parser.add_argument("--report-file", required=True)
+    check_score_governance_parser.add_argument("--decision-file")
+    check_score_governance_parser.add_argument("--trend-report-file")
+    check_score_governance_parser.add_argument("--max-flagged-candidate-ratio", type=float)
+    check_score_governance_parser.add_argument("--blocked-flag", action="append", default=[])
+    check_score_governance_parser.add_argument("--persistent-flag-tolerance", type=int)
+    check_score_governance_parser.add_argument("--rising-flag-tolerance", type=int)
+    check_score_governance_parser.add_argument("--recurring-tuple-cluster-tolerance", type=int)
+    check_score_governance_parser.add_argument(
+        "--blocked-decision-status",
+        action="append",
+        default=[],
+    )
+
+    check_release_governance_parser = subparsers.add_parser(
+        "check-release-governance",
+        help="Build one persisted release-readiness view from score-governance artifacts.",
+    )
+    check_release_governance_parser.add_argument("--report-file", required=True)
+    check_release_governance_parser.add_argument("--decision-file")
+    check_release_governance_parser.add_argument("--trend-report-file")
+    check_release_governance_parser.add_argument("--replay-report-file")
+    check_release_governance_parser.add_argument("--release-report-name", required=True)
+    check_release_governance_parser.add_argument("--selection-reason")
+    check_release_governance_parser.add_argument("--max-flagged-candidate-ratio", type=float)
+    check_release_governance_parser.add_argument("--blocked-flag", action="append", default=[])
+    check_release_governance_parser.add_argument("--persistent-flag-tolerance", type=int)
+    check_release_governance_parser.add_argument("--rising-flag-tolerance", type=int)
+    check_release_governance_parser.add_argument(
+        "--recurring-tuple-cluster-tolerance",
+        type=int,
+    )
+    check_release_governance_parser.add_argument(
+        "--blocked-decision-status",
+        action="append",
+        default=[],
+    )
+
+    list_score_governance_work_parser = subparsers.add_parser(
+        "list-score-governance-work",
+        help="Build one operator triage queue from persisted governance artifacts.",
+    )
+    _add_adapter_argument(list_score_governance_work_parser)
+    list_score_governance_work_parser.add_argument("--triage-report-name", required=True)
+    list_score_governance_work_parser.add_argument("--selection-reason")
+
+    resolve_score_governance_item_parser = subparsers.add_parser(
+        "resolve-score-governance-item",
+        help="Persist one operator resolution for a score-governance triage item.",
+    )
+    _add_adapter_argument(resolve_score_governance_item_parser)
+    resolve_score_governance_item_parser.add_argument("--item-id", required=True)
+    resolve_score_governance_item_parser.add_argument("--resolution-status", required=True)
+    resolve_score_governance_item_parser.add_argument("--notes")
+
+    record_release_governance_decision_parser = subparsers.add_parser(
+        "record-release-governance-decision",
+        help="Persist one operator release decision for a release-governance report.",
+    )
+    record_release_governance_decision_parser.add_argument("--release-report-file", required=True)
+    record_release_governance_decision_parser.add_argument("--decision-status", required=True)
+    record_release_governance_decision_parser.add_argument("--notes")
+
+    governance_status_parser = subparsers.add_parser(
+        "governance-status",
+        help="Show the latest joined governance status surface for one adapter.",
+    )
+    _add_adapter_argument(governance_status_parser)
+
+    cross_adapter_scores_parser = subparsers.add_parser(
+        "report-cross-adapter-scores",
+        help="Build one comparable score inspection report across adapters.",
+    )
+    cross_adapter_scores_parser.add_argument("--report-name", required=True)
+    cross_adapter_scores_parser.add_argument(
+        "--adapter",
+        action="append",
+        default=[],
+    )
+    cross_adapter_scores_parser.add_argument("--top-n", type=int, default=25)
+
+    governance_dashboard_parser = subparsers.add_parser(
+        "report-score-governance-dashboard",
+        help="Build one aggregate governance dashboard report across adapters.",
+    )
+    governance_dashboard_parser.add_argument("--report-name", required=True)
+    governance_dashboard_parser.add_argument(
+        "--adapter",
+        action="append",
+        default=[],
+    )
+
     bundle_parser = subparsers.add_parser(
         "export-training-bundle",
         help="Export one bounded training bundle from a recorded cycle.",
@@ -1069,6 +1747,53 @@ def _build_generic_parsers(subparsers: Any) -> None:
     _add_adapter_argument(bundle_parser)
     bundle_parser.add_argument("--cycle-id", required=True)
     bundle_parser.add_argument("--bundle-type", required=True)
+
+    post_training_dataset_parser = subparsers.add_parser(
+        "export-post-training-dataset",
+        help="Build and persist one Trinity-owned post-training dataset from training bundles.",
+    )
+    _add_adapter_argument(post_training_dataset_parser)
+    post_training_dataset_parser.add_argument("--dataset-name", required=True)
+    post_training_dataset_parser.add_argument("--bundle-file", action="append", default=[])
+    post_training_dataset_parser.add_argument("--cycle-id", action="append", default=[])
+    post_training_dataset_parser.add_argument("--bundle-type")
+    post_training_dataset_parser.add_argument(
+        "--purpose",
+        action="append",
+        default=[
+            PostTrainingPurpose.SFT.value,
+            PostTrainingPurpose.LORA.value,
+            PostTrainingPurpose.QLORA.value,
+        ],
+    )
+    post_training_dataset_parser.add_argument("--selection-reason")
+
+    post_training_split_parser = subparsers.add_parser(
+        "build-post-training-split",
+        help="Build and persist one deterministic split for a Trinity post-training dataset.",
+    )
+    post_training_split_parser.add_argument("--dataset-file", required=True)
+    post_training_split_parser.add_argument("--split-name", required=True)
+    post_training_split_parser.add_argument("--validation-ratio", type=float, default=0.1)
+    post_training_split_parser.add_argument("--holdout-ratio", type=float, default=0.1)
+    post_training_split_parser.add_argument("--selection-reason")
+
+    post_training_curation_parser = subparsers.add_parser(
+        "curate-post-training-example",
+        help="Persist one curation decision and apply it to a post-training dataset.",
+    )
+    post_training_curation_parser.add_argument("--dataset-file", required=True)
+    post_training_curation_parser.add_argument("--example-id", required=True)
+    post_training_curation_parser.add_argument("--annotation-status", required=True)
+    post_training_curation_parser.add_argument("--reason", required=True)
+
+    post_training_promotion_parser = subparsers.add_parser(
+        "promote-post-training-dataset",
+        help="Promote one post-training dataset from candidate to curated or ready.",
+    )
+    post_training_promotion_parser.add_argument("--dataset-file", required=True)
+    post_training_promotion_parser.add_argument("--dataset-status", required=True)
+    post_training_promotion_parser.add_argument("--reason", required=True)
 
     shadow_parser = subparsers.add_parser(
         "run-shadow-fixtures",
@@ -1226,8 +1951,7 @@ def _build_generic_parsers(subparsers: Any) -> None:
     normalize_gobii_profile_enrichment_parser = subparsers.add_parser(
         "normalize-gobii-profile-enrichment",
         help=(
-            "Normalize one persisted Gobii tracked-entity enrichment bundle "
-            "into Trinity artifacts."
+            "Normalize one persisted Gobii tracked-entity enrichment bundle into Trinity artifacts."
         ),
     )
     _add_adapter_argument(normalize_gobii_profile_enrichment_parser)
@@ -1255,6 +1979,7 @@ def _build_generic_parsers(subparsers: Any) -> None:
     train_parser.add_argument("--skeptical-note", action="append", default=[])
     train_parser.add_argument("--regression-threshold", type=float, default=0.0)
     train_parser.add_argument("--reason")
+    _add_score_governance_acceptance_arguments(train_parser)
 
     accept_parser = subparsers.add_parser(
         "policy-accept",
@@ -1271,6 +1996,7 @@ def _build_generic_parsers(subparsers: Any) -> None:
     accept_parser.add_argument("--source-train-run-id")
     accept_parser.add_argument("--skeptical-note", action="append", default=[])
     accept_parser.add_argument("--reason")
+    _add_score_governance_acceptance_arguments(accept_parser)
 
     review_parser = subparsers.add_parser(
         "policy-review",
@@ -1290,8 +2016,7 @@ def _build_generic_parsers(subparsers: Any) -> None:
     review_surface_parser = subparsers.add_parser(
         "policy-review-surface",
         help=(
-            "Render a promotion-oriented review surface with acceptance mode "
-            "and Train provenance."
+            "Render a promotion-oriented review surface with acceptance mode and Train provenance."
         ),
     )
     _add_adapter_argument(review_surface_parser)
@@ -1359,8 +2084,11 @@ def _build_generic_parsers(subparsers: Any) -> None:
     write_config_parser.add_argument("--mistral-cli-model-binding")
     write_config_parser.add_argument("--timeout-seconds", type=float)
     write_config_parser.add_argument("--generator-model")
+    write_config_parser.add_argument("--generator-model-id")
     write_config_parser.add_argument("--refiner-model")
+    write_config_parser.add_argument("--refiner-model-id")
     write_config_parser.add_argument("--evaluator-model")
+    write_config_parser.add_argument("--evaluator-model-id")
 
 
 def _build_reply_compat_parsers(subparsers: Any) -> None:
@@ -1476,8 +2204,11 @@ def _build_reply_compat_parsers(subparsers: Any) -> None:
     write_config_parser.add_argument("--mistral-cli-model-binding")
     write_config_parser.add_argument("--timeout-seconds", type=float)
     write_config_parser.add_argument("--generator-model")
+    write_config_parser.add_argument("--generator-model-id")
     write_config_parser.add_argument("--refiner-model")
+    write_config_parser.add_argument("--refiner-model-id")
     write_config_parser.add_argument("--evaluator-model")
+    write_config_parser.add_argument("--evaluator-model-id")
 
 
 def _add_adapter_argument(parser: Any) -> None:
@@ -1503,9 +2234,331 @@ def _load_json(input_file: str | None) -> dict[str, Any]:
     return json.load(sys.stdin)
 
 
+def _add_score_governance_acceptance_arguments(parser: Any) -> None:
+    parser.add_argument("--score-health-report-file")
+    parser.add_argument("--score-health-decision-file")
+    parser.add_argument("--score-health-trend-report-file")
+    parser.add_argument("--release-governance-report-file")
+    parser.add_argument("--release-governance-decision-status")
+    parser.add_argument("--release-governance-notes")
+    parser.add_argument("--allow-score-governance-override", action="store_true")
+    parser.add_argument("--score-governance-override-note")
+    parser.add_argument("--max-flagged-candidate-ratio", type=float)
+    parser.add_argument("--blocked-flag", action="append", default=[])
+    parser.add_argument("--persistent-flag-tolerance", type=int)
+    parser.add_argument("--rising-flag-tolerance", type=int)
+    parser.add_argument("--recurring-tuple-cluster-tolerance", type=int)
+    parser.add_argument("--blocked-decision-status", action="append", default=[])
+
+
+def _score_governance_policy_from_args(args: Any) -> ScoreGovernancePolicy:
+    blocked_statuses = (
+        tuple(
+            str(status).strip()
+            for status in getattr(args, "blocked_decision_status", ())
+            if str(status).strip()
+        )
+        or ScoreGovernancePolicy().blocked_decision_statuses
+    )
+    return ScoreGovernancePolicy(
+        blocked_decision_statuses=blocked_statuses,
+        blocked_flags=tuple(
+            str(flag).strip() for flag in getattr(args, "blocked_flag", ()) if str(flag).strip()
+        ),
+        max_flagged_candidate_ratio=getattr(args, "max_flagged_candidate_ratio", None),
+        persistent_flag_tolerance=getattr(args, "persistent_flag_tolerance", None),
+        rising_flag_tolerance=getattr(args, "rising_flag_tolerance", None),
+        recurring_tuple_cluster_tolerance=getattr(
+            args,
+            "recurring_tuple_cluster_tolerance",
+            None,
+        ),
+    )
+
+
+def _resolve_score_governance_check(args: Any) -> Any | None:
+    report_file = getattr(args, "score_health_report_file", None)
+    if not report_file:
+        return None
+    report = load_score_health_report(report_file)
+    decision_file = getattr(args, "score_health_decision_file", None)
+    trend_report_file = getattr(args, "score_health_trend_report_file", None)
+    decision = load_score_health_review_decision(decision_file) if decision_file else None
+    trend_report = load_score_health_trend_report(trend_report_file) if trend_report_file else None
+    return evaluate_score_governance(
+        report,
+        decision=decision,
+        trend_report=trend_report,
+        policy=_score_governance_policy_from_args(args),
+    )
+
+
+def _policy_accept_skeptical_notes(args: Any, score_governance: Any | None) -> tuple[str, ...]:
+    notes = [str(note).strip() for note in getattr(args, "skeptical_note", ()) if str(note).strip()]
+    if score_governance is None:
+        return tuple(notes)
+    notes.append(
+        "Score governance checked "
+        f"for report {score_governance.report_id or 'unknown'} with "
+        f"{len(score_governance.blocking_reasons)} blocking reasons and "
+        f"{len(score_governance.warnings)} warnings."
+    )
+    override_note = str(getattr(args, "score_governance_override_note", "") or "").strip()
+    if override_note:
+        notes.append(f"Score governance override: {override_note}")
+    return tuple(notes)
+
+
+def _policy_accept_score_governance_kwargs(
+    args: Any,
+    score_governance: Any | None,
+) -> dict[str, Any]:
+    if score_governance is None:
+        return {}
+    override_note = str(getattr(args, "score_governance_override_note", "") or "").strip()
+    return {
+        "score_governance_status": (
+            "override"
+            if override_note and not score_governance.allowed
+            else (score_governance.decision_status or "checked")
+        ),
+        "score_governance_report_id": score_governance.report_id,
+        "score_governance_decision_id": score_governance.decision_id,
+        "score_governance_trend_report_id": score_governance.trend_report_id,
+        "score_governance_override_notes": ((override_note,) if override_note else ()),
+    }
+
+
+def _resolve_release_governance_decision(args: Any, score_governance: Any | None) -> Any | None:
+    report_file = getattr(args, "release_governance_report_file", None)
+    if not report_file:
+        if score_governance is not None:
+            raise ValueError(
+                "--release-governance-report-file is required when accepting with "
+                "score-governance artifacts."
+            )
+        return None
+    report = load_score_governance_release_report(report_file)
+    decision_status = str(getattr(args, "release_governance_decision_status", "") or "").strip()
+    if not decision_status:
+        raise ValueError(
+            "--release-governance-decision-status is required when "
+            "--release-governance-report-file is provided."
+        )
+    decision = make_score_governance_release_decision(
+        report,
+        decision_status=decision_status,
+        notes=str(getattr(args, "release_governance_notes", "") or ""),
+        metadata={"release_report_file": str(report_file)},
+    )
+    persist_score_governance_release_decision(report.adapter_name, decision)
+    return report, decision
+
+
 def _write_json(payload: dict[str, Any]) -> None:
     json.dump(payload, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
+
+
+def _build_shared_model_inventory_payload() -> dict[str, Any]:
+    try:
+        inventory = load_model_inventory(repo_root=Path(__file__).resolve().parents[2])
+    except ModelInventoryError as exc:
+        return {
+            "enabled": False,
+            "manifest_version": None,
+            "models_root": None,
+            "manifest_path": None,
+            "entry_count": 0,
+            "error": str(exc),
+            "_inventory": None,
+        }
+
+    return {
+        "enabled": inventory.loaded,
+        "manifest_version": inventory.manifest_version,
+        "models_root": str(inventory.models_root),
+        "manifest_path": str(inventory.manifest_path),
+        "entry_count": len(inventory.entries),
+        "error": None,
+        "_inventory": inventory,
+    }
+
+
+def _build_role_inventory_payload(
+    *,
+    shared_inventory_payload: dict[str, Any],
+    provider: str,
+    route_model_id: str | None,
+    route_model: str,
+) -> dict[str, Any]:
+    inventory = shared_inventory_payload.get("_inventory")
+    if inventory is None or not shared_inventory_payload.get("enabled"):
+        return {
+            "inventory_found": False,
+            "inventory_model_id": None,
+            "inventory_path": None,
+            "inventory_format": None,
+            "inventory_status": "inventory_disabled",
+        }
+
+    entry = None
+    normalized_model_id = str(route_model_id or "").strip()
+    if normalized_model_id:
+        entry = inventory.find_by_model_id(normalized_model_id)
+    if entry is None:
+        entry = inventory.find_for_route(provider=provider, route_model=route_model)
+
+    inventory_path = str(entry.local_path) if entry is not None and entry.local_path else None
+    return {
+        "inventory_found": entry is not None,
+        "inventory_model_id": entry.model_id if entry is not None else None,
+        "inventory_path": inventory_path,
+        "inventory_format": entry.format if entry is not None else None,
+        "inventory_status": _inventory_status_for_entry(entry, provider=provider),
+    }
+
+
+def _inventory_status_for_entry(entry: Any, *, provider: str) -> str:
+    if entry is None:
+        return "unknown"
+
+    local_path = getattr(entry, "local_path", None)
+    if local_path is not None:
+        return "present" if Path(local_path).exists() else "missing"
+
+    provider_modes = {
+        str(item).strip().lower()
+        for item in getattr(entry, "provider_modes", ())
+        if str(item).strip()
+    }
+    provider_refs = getattr(entry, "provider_refs", {})
+    normalized_provider = str(provider or "").strip().lower()
+    if (
+        normalized_provider in provider_refs
+        or normalized_provider in provider_modes
+        or "provider-managed" in provider_modes
+    ):
+        return "provider_managed"
+    return "unknown"
+
+
+def _resolve_cli_role_model_id(
+    *,
+    explicit_model_id: str | None,
+    provider: str,
+    route_model: str,
+    current_model_id: str | None,
+) -> str | None:
+    normalized_explicit = str(explicit_model_id or "").strip()
+    if normalized_explicit:
+        return normalized_explicit
+    shared_inventory_payload = _build_shared_model_inventory_payload()
+    inventory = shared_inventory_payload.get("_inventory")
+    if inventory is not None and shared_inventory_payload.get("enabled"):
+        entry = inventory.find_for_route(provider=provider, route_model=route_model)
+        if entry is not None:
+            return entry.model_id
+    return current_model_id
+
+
+def _build_runtime_readiness_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    llm_enabled = bool(payload.get("llm_enabled"))
+    provider_status = str(payload.get("provider_status") or "not_configured").strip().lower()
+    roles = payload.get("roles") if isinstance(payload.get("roles"), dict) else {}
+    role_readiness: dict[str, bool] = {}
+    missing_models: list[str] = []
+
+    for role_name in ("generator", "refiner", "evaluator"):
+        route = roles.get(role_name) if isinstance(roles, dict) else None
+        installed = bool(route.get("installed")) if isinstance(route, dict) else False
+        model_name = str(route.get("model") or "").strip() if isinstance(route, dict) else ""
+        ready = (not llm_enabled) or provider_status == "configured" or (
+            provider_status == "online" and installed
+        )
+        role_readiness[role_name] = ready
+        if llm_enabled and provider_status == "online" and model_name and not installed:
+            missing_models.append(f"{role_name}:{model_name}")
+
+    reasons: list[str] = []
+    state = "ready"
+    if not llm_enabled:
+        state = "disabled"
+        reasons.append("llm_disabled")
+    elif provider_status == "not_configured":
+        state = "not_configured"
+        reasons.append("provider_not_configured")
+    elif provider_status == "unsupported":
+        state = "unsupported"
+        reasons.append("provider_unsupported")
+    elif provider_status == "offline":
+        state = "offline"
+        reasons.append("provider_offline")
+    elif missing_models:
+        state = "degraded"
+        reasons.extend([f"missing_model:{item}" for item in missing_models])
+
+    ready = state in {"ready", "configured"}
+    if state == "ready" and llm_enabled and provider_status == "configured":
+        state = "configured"
+
+    return {
+        "state": state,
+        "ready": ready,
+        "can_suggest": ready,
+        "can_get_prepared_draft": ready,
+        "can_record_outcome": True,
+        "can_ingest_memory_event": True,
+        "can_register_document": True,
+        "role_readiness": role_readiness,
+        "reasons": reasons,
+    }
+
+
+def _structured_cli_error_payload(
+    exc: Exception,
+    *,
+    argv: list[str] | None = None,
+) -> dict[str, Any]:
+    command = str(argv[0]) if argv else None
+    adapter_name = None
+    if argv:
+        for index, value in enumerate(argv):
+            if value == "--adapter" and index + 1 < len(argv):
+                adapter_name = str(argv[index + 1])
+                break
+    error_type = type(exc).__name__
+    if isinstance(exc, UnsupportedModelProviderError):
+        code = "unsupported_model_provider"
+    elif isinstance(exc, ValueError):
+        code = "invalid_request"
+    elif isinstance(exc, RuntimeError):
+        code = "runtime_error"
+    else:
+        code = "internal_error"
+    return {
+        "ok": False,
+        "contract_version": CLI_CONTRACT_VERSION,
+        "error_schema_version": CLI_ERROR_SCHEMA_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "error": {
+            "code": code,
+            "type": error_type,
+            "message": str(exc),
+            "command": command,
+            "adapter": adapter_name,
+        },
+    }
+
+
+def run_cli(argv: list[str] | None = None) -> int:
+    try:
+        return main(argv)
+    except Exception as exc:  # pragma: no cover - exercised via tests on stderr
+        payload = _structured_cli_error_payload(exc, argv=argv)
+        json.dump(payload, sys.stderr, indent=2, sort_keys=True)
+        sys.stderr.write("\n")
+        return 2 if payload["error"]["code"] != "internal_error" else 1
 
 
 def _resolve_holdout_requirement(args: Any) -> bool:
@@ -1521,9 +2574,7 @@ def _policy_review_surface_payload(result: Any) -> dict[str, Any]:
     scope_value = policy_payload.get("scope_value")
     return {
         "ready_for_acceptance": bool(result.ready_for_acceptance),
-        "recommended_action": (
-            "accept" if result.ready_for_acceptance else "revise_or_reject"
-        ),
+        "recommended_action": ("accept" if result.ready_for_acceptance else "revise_or_reject"),
         "review_decision_id": result.review_decision_id,
         "acceptance_mode": result.acceptance_mode,
         "holdout_required": bool(result.holdout_required),
@@ -1573,4 +2624,4 @@ def _require_reply_adapter(adapter_name: str, command: str) -> None:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(run_cli(sys.argv[1:]))

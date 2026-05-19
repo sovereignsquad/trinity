@@ -38,6 +38,38 @@ def build_runtime_loop_decision_payload(
     }
 
 
+def build_runtime_score_audit_payload(candidates: Any) -> dict[str, Any]:
+    records = tuple(candidates)
+    candidate_payloads: list[dict[str, Any]] = []
+    flagged_candidate_ids: list[str] = []
+
+    for candidate in records:
+        scores = candidate.scores
+        candidate_payload = {
+            "candidate_id": str(candidate.candidate_id),
+            "title": candidate.title,
+            "proposed_scores": _headline_payload(scores.proposed_scores),
+            "final_scores": {
+                "impact": scores.impact,
+                "confidence": scores.confidence,
+                "ease": scores.ease,
+                "delivery_difficulty": scores.delivery_difficulty,
+            },
+            "audit_flags": list(scores.audit_flags),
+            "calibration_notes": list(scores.calibration_notes),
+        }
+        candidate_payloads.append(candidate_payload)
+        if candidate_payload["audit_flags"]:
+            flagged_candidate_ids.append(candidate_payload["candidate_id"])
+
+    return {
+        "candidate_count": len(candidate_payloads),
+        "flagged_candidate_count": len(flagged_candidate_ids),
+        "flagged_candidate_ids": flagged_candidate_ids,
+        "candidates": candidate_payloads,
+    }
+
+
 def persist_runtime_trace(store: RuntimeCycleStore, trace: Any) -> None:
     if hasattr(trace, "payload") and hasattr(trace, "cycle_id"):
         payload = dataclass_payload(trace.payload)
@@ -57,3 +89,14 @@ def _payloadify(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_payloadify(item) for item in value]
     return value
+
+
+def _headline_payload(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    return {
+        "impact": value.impact,
+        "confidence": value.confidence,
+        "ease": value.ease,
+        "delivery_difficulty": value.delivery_difficulty,
+    }

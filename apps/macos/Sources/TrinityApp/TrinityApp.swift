@@ -27,6 +27,7 @@ private enum TrinityPage: String, CaseIterable, Identifiable {
     case timeline
     case candidates
     case feedback
+    case governance
 
     var id: String { rawValue }
 
@@ -36,6 +37,7 @@ private enum TrinityPage: String, CaseIterable, Identifiable {
         case .timeline: "Timeline"
         case .candidates: "Candidates"
         case .feedback: "Feedback"
+        case .governance: "Governance"
         }
     }
 
@@ -45,6 +47,7 @@ private enum TrinityPage: String, CaseIterable, Identifiable {
         case .timeline: "text.append"
         case .candidates: "sparkles.rectangle.stack"
         case .feedback: "checkmark.message"
+        case .governance: "checklist"
         }
     }
 }
@@ -78,6 +81,7 @@ struct TrinityApp: App {
 
 struct ContentView: View {
     @State private var selectedPage: TrinityPage? = .overview
+    @State private var governanceSnapshots = TrinityGovernanceLoader.loadAll()
 
     var body: some View {
         TrinityShell {
@@ -181,6 +185,25 @@ struct ContentView: View {
                     feedbackRow("Blocked", TrinityPalette.info, "Execution deferred pending external data or policy checks.")
                 }
             }
+        case .governance:
+            sectionPanel(
+                title: "Governance",
+                subtitle: "Latest release, triage, and override lineage from persisted runtime artifacts."
+            ) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Adapter governance status")
+                            .font(.headline)
+                        Spacer()
+                        Button("Refresh") {
+                            governanceSnapshots = TrinityGovernanceLoader.loadAll()
+                        }
+                    }
+                    ForEach(governanceSnapshots) { snapshot in
+                        governanceSnapshotCard(snapshot)
+                    }
+                }
+            }
         }
     }
 
@@ -232,5 +255,59 @@ struct ContentView: View {
             Text(body)
                 .foregroundStyle(TrinityPalette.textSecondary)
         }
+    }
+
+    private func governanceSnapshotCard(_ snapshot: TrinityGovernanceSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(snapshot.adapterName.uppercased())
+                        .font(.headline)
+                    Text("Latest report: \(snapshot.latestReportID)")
+                        .foregroundStyle(TrinityPalette.textSecondary)
+                }
+                Spacer()
+                TrinityStatusPill(
+                    label: snapshot.latestReleaseStatus == "none" ? "No release call" : snapshot.latestReleaseStatus,
+                    color: snapshot.latestReleaseStatus == "approve" ? TrinityPalette.success : TrinityPalette.warning
+                )
+            }
+            HStack {
+                TrinityStatusPill(label: "Review \(snapshot.latestReviewStatus)", color: TrinityPalette.info)
+                TrinityStatusPill(
+                    label: "\(snapshot.openTriageItemCount) open triage",
+                    color: snapshot.openTriageItemCount == 0 ? TrinityPalette.success : TrinityPalette.warning
+                )
+                TrinityStatusPill(label: "\(snapshot.resolvedTriageCount) resolved", color: TrinityPalette.success)
+            }
+            if !snapshot.topOpenTriageSummaries.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Top open work")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(snapshot.topOpenTriageSummaries, id: \.self) { summary in
+                        Text(summary)
+                            .foregroundStyle(TrinityPalette.textSecondary)
+                    }
+                }
+            }
+            if !snapshot.artifacts.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Accepted artifacts")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(snapshot.artifacts) { artifact in
+                        HStack {
+                            Text("\(artifact.id) \(artifact.version)")
+                            Spacer()
+                            TrinityStatusPill(label: artifact.scoreStatus, color: TrinityPalette.info)
+                            TrinityStatusPill(label: artifact.releaseStatus, color: TrinityPalette.warning)
+                            if artifact.overrideCount > 0 {
+                                TrinityStatusPill(label: "\(artifact.overrideCount) override", color: TrinityPalette.warning)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .trinityPanel()
     }
 }

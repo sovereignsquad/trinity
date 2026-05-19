@@ -13,6 +13,7 @@ from trinity_core.adapters import (
     normalize_adapter_name,
     require_supported_adapter,
 )
+from trinity_core.adapters.model.inventory import load_model_inventory
 from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 
 DEFAULT_TRINITY_GENERATOR_MODEL = "granite4:350m"
@@ -26,6 +27,7 @@ class TrinityRoleRoute:
     model: str
     temperature: float
     keep_alive: str
+    model_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,19 @@ def load_model_config(adapter_name: str) -> TrinityModelConfig:
                 "generator_model",
                 DEFAULT_TRINITY_GENERATOR_MODEL,
             ),
+            model_id=_resolve_role_model_id(
+                env_key="TRINITY_GENERATOR_MODEL_ID",
+                file_payload=file_payload,
+                role_key="generator",
+                file_key="generator_model_id",
+                provider=provider,
+                model=_resolve_value(
+                    "TRINITY_GENERATOR_MODEL",
+                    file_payload,
+                    "generator_model",
+                    DEFAULT_TRINITY_GENERATOR_MODEL,
+                ),
+            ),
             temperature=_resolve_float(
                 "TRINITY_GENERATOR_TEMPERATURE",
                 file_payload,
@@ -127,6 +142,19 @@ def load_model_config(adapter_name: str) -> TrinityModelConfig:
                 "refiner_model",
                 DEFAULT_TRINITY_REFINER_MODEL,
             ),
+            model_id=_resolve_role_model_id(
+                env_key="TRINITY_REFINER_MODEL_ID",
+                file_payload=file_payload,
+                role_key="refiner",
+                file_key="refiner_model_id",
+                provider=provider,
+                model=_resolve_value(
+                    "TRINITY_REFINER_MODEL",
+                    file_payload,
+                    "refiner_model",
+                    DEFAULT_TRINITY_REFINER_MODEL,
+                ),
+            ),
             temperature=_resolve_float(
                 "TRINITY_REFINER_TEMPERATURE",
                 file_payload,
@@ -149,6 +177,19 @@ def load_model_config(adapter_name: str) -> TrinityModelConfig:
                 file_payload,
                 "evaluator_model",
                 DEFAULT_TRINITY_EVALUATOR_MODEL,
+            ),
+            model_id=_resolve_role_model_id(
+                env_key="TRINITY_EVALUATOR_MODEL_ID",
+                file_payload=file_payload,
+                role_key="evaluator",
+                file_key="evaluator_model_id",
+                provider=provider,
+                model=_resolve_value(
+                    "TRINITY_EVALUATOR_MODEL",
+                    file_payload,
+                    "evaluator_model",
+                    DEFAULT_TRINITY_EVALUATOR_MODEL,
+                ),
             ),
             temperature=_resolve_float(
                 "TRINITY_EVALUATOR_TEMPERATURE",
@@ -217,6 +258,24 @@ def _load_config_file(adapter_name: str) -> dict[str, Any]:
         return {}
 
 
+def _resolve_role_model_id(
+    *,
+    env_key: str,
+    file_payload: dict[str, Any],
+    role_key: str,
+    file_key: str,
+    provider: str,
+    model: str,
+) -> str | None:
+    explicit = _optional_resolve_value(env_key, file_payload, file_key)
+    if explicit is not None:
+        return explicit
+    explicit_nested = _nested_optional_string(file_payload, role_key, "model_id")
+    if explicit_nested is not None:
+        return explicit_nested
+    return _derive_model_id_from_inventory(provider=provider, model=model)
+
+
 def _resolve_ollama_base_url(file_payload: dict[str, Any]) -> str:
     raw = _resolve_value(
         "TRINITY_OLLAMA_BASE_URL",
@@ -230,8 +289,30 @@ def _resolve_ollama_base_url(file_payload: dict[str, Any]) -> str:
 
 
 def _resolve_value(env_key: str, file_payload: dict[str, Any], file_key: str, default: str) -> str:
-    raw = str(os.environ.get(env_key, file_payload.get(file_key, default)) or "").strip()
+    raw = str(
+        os.environ.get(
+            env_key,
+            _file_value(file_payload, file_key, default),
+        )
+        or ""
+    ).strip()
     return raw or default
+
+
+def _optional_resolve_value(
+    env_key: str,
+    file_payload: dict[str, Any],
+    file_key: str,
+) -> str | None:
+    raw = os.environ.get(env_key)
+    if raw is not None:
+        value = str(raw or "").strip()
+        return value or None
+    file_value = _file_value(file_payload, file_key, None)
+    if file_value is None:
+        return None
+    value = str(file_value or "").strip()
+    return value or None
 
 
 def _resolve_string_tuple(
@@ -244,7 +325,7 @@ def _resolve_string_tuple(
     if raw is not None:
         return tuple(part for part in str(raw).split() if part)
 
-    file_value = file_payload.get(file_key, default)
+    file_value = _file_value(file_payload, file_key, default)
     if isinstance(file_value, (list, tuple)):
         return tuple(str(item).strip() for item in file_value if str(item).strip())
     if isinstance(file_value, str):
@@ -261,9 +342,57 @@ def _resolve_float(
     minimum: float,
     maximum: float,
 ) -> float:
-    raw = os.environ.get(env_key, file_payload.get(file_key, default))
+    raw = os.environ.get(env_key, _file_value(file_payload, file_key, default))
     try:
         value = float(raw)
     except (TypeError, ValueError):
         value = default
     return max(minimum, min(maximum, value))
+
+
+def _file_value(file_payload: dict[str, Any], file_key: str, default: object) -> object:
+    if file_key in file_payload:
+        return file_payload[file_key]
+    if file_key.endswith("_model"):
+        role_key = file_key[: -len("_model")]
+        return _nested_role_value(file_payload, role_key, "model", default)
+    if file_key.endswith("_model_id"):
+        role_key = file_key[: -len("_model_id")]
+        return _nested_role_value(file_payload, role_key, "model_id", default)
+    if file_key.endswith("_temperature"):
+        role_key = file_key[: -len("_temperature")]
+        return _nested_role_value(file_payload, role_key, "temperature", default)
+    if file_key.endswith("_keep_alive"):
+        role_key = file_key[: -len("_keep_alive")]
+        return _nested_role_value(file_payload, role_key, "keep_alive", default)
+    return default
+
+
+def _nested_role_value(
+    file_payload: dict[str, Any],
+    role_key: str,
+    nested_key: str,
+    default: object,
+) -> object:
+    nested = file_payload.get(role_key)
+    if not isinstance(nested, dict):
+        return default
+    return nested.get(nested_key, default)
+
+
+def _nested_optional_string(
+    file_payload: dict[str, Any],
+    role_key: str,
+    nested_key: str,
+) -> str | None:
+    nested = file_payload.get(role_key)
+    if not isinstance(nested, dict):
+        return None
+    value = str(nested.get(nested_key) or "").strip()
+    return value or None
+
+
+def _derive_model_id_from_inventory(*, provider: str, model: str) -> str | None:
+    inventory = load_model_inventory(repo_root=Path(__file__).resolve().parents[3])
+    entry = inventory.find_for_route(provider=provider, route_model=model)
+    return entry.model_id if entry is not None else None

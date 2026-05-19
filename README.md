@@ -4,6 +4,11 @@
 
 It is the runtime layer that turns normalized evidence plus scoped memory into ranked, decision-ready outputs. It is not the product shell, and it is not the offline optimizer.
 
+Current release:
+
+- `0.1.4`
+- [CHANGELOG.md](/Users/Shared/Projects/trinity/CHANGELOG.md)
+
 Current system split:
 
 - `{trinity}` owns runtime workflow, ranking, trace export, training-bundle export, and accepted-artifact application
@@ -25,6 +30,7 @@ Implemented today:
 - generic CLI surface in [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
 - first mature drafting adapter for `{reply}`
 - one bounded reasoning adapter slice for `{spot}`
+- explicit score-governance lifecycle across acceptance, release readiness, triage queues, triage resolution, and release-decision lineage
 
 Current restoration focus:
 
@@ -68,6 +74,7 @@ Compatibility guarantee:
 - the generic CLI is the preferred contract
 - legacy `reply-*` commands remain supported as compatibility aliases
 - the Reply adapter can still read legacy `reply_runtime` storage when a machine already has that layout
+- the Reply adapter can be asked for a prepared draft on conversation open and must return a usable draft by reusing a fresh prepared artifact or generating a new best-available draft immediately when the prepared artifact is missing or stale
 
 ## Repository Layout
 
@@ -123,6 +130,11 @@ Preferred generic commands:
 - `list-gobii-tasks --adapter <adapter> [options]`
 - `cancel-gobii-task --adapter <adapter> --task-id <id> [options]`
 - `normalize-gobii-task --adapter <adapter> --input-file <path>`
+- `check-score-governance --report-file <path> [--decision-file <path>] [--trend-report-file <path>]`
+- `check-release-governance --report-file <path> --release-report-name <name> [--decision-file <path>]`
+- `list-score-governance-work --adapter <adapter> --triage-report-name <name>`
+- `resolve-score-governance-item --adapter <adapter> --item-id <id> --resolution-status <status>`
+- `record-release-governance-decision --release-report-file <path> --decision-status <status>`
 
 Current implemented examples:
 
@@ -159,6 +171,7 @@ Policy acceptance note:
 
 - serious policy review and acceptance flows now default to holdout replay
 - no-holdout acceptance is restricted to explicit local/dev override with `--allow-no-holdout`
+- score-governance can now block acceptance and release deterministically unless an operator records an explicit override
 - exported training bundles now preserve negative samples and policy-resolution context so `{train}` can learn from bounded runtime artifacts without silently reinterpreting the whole trace
 - the current runtime, policy, Train handoff, and shadow-fixture lanes are intentionally centered on the `{reply} <-> {trinity} <-> {train}` workflow
 
@@ -195,6 +208,13 @@ Validation:
 ```bash
 uv run ruff check .
 uv run pytest
+```
+
+Compatibility verification:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot
 ```
 
 Native shell build:
@@ -240,6 +260,7 @@ Do not:
 - [docs/REPOSITORY_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPOSITORY_CONTRACT.md)
 - [docs/PROVIDER_COMPARISON_HARNESS.md](/Users/Shared/Projects/trinity/docs/PROVIDER_COMPARISON_HARNESS.md)
 - [docs/PRODUCTION_TRACE_EVAL_DATASETS.md](/Users/Shared/Projects/trinity/docs/PRODUCTION_TRACE_EVAL_DATASETS.md)
+- [docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md](/Users/Shared/Projects/trinity/docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md)
 - [docs/CONTROL_PLANE_SEAM.md](/Users/Shared/Projects/trinity/docs/CONTROL_PLANE_SEAM.md)
 - [docs/GOBII_RECURRING_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_RECURRING_WORKFLOW.md)
 - [docs/GOBII_NORMALIZATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/GOBII_NORMALIZATION_CONTRACT.md)

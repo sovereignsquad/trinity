@@ -98,6 +98,24 @@ def test_spot_reasoning_result_requires_selected_candidate() -> None:
     assert result.review_required is True
 
 
+def test_spot_reasoning_candidate_exposes_ice_and_priority_scores() -> None:
+    candidate = SpotReasoningCandidate(
+        candidate_key="c1",
+        interpretation="Likely explicit threat rhetoric.",
+        rationale="Contains direct hostile framing.",
+        impact=8,
+        confidence=7,
+        ease=4,
+        quality_score=80.0,
+        urgency_score=70.0,
+        freshness_score=72.0,
+        feedback_score=10.0,
+    )
+
+    assert candidate.ice_score == 224
+    assert candidate.priority_score > 0.0
+
+
 def test_spot_review_outcome_requires_final_label() -> None:
     with pytest.raises(ValueError, match="final_label"):
         SpotReviewOutcome(

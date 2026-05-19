@@ -445,10 +445,12 @@ class RuntimeTraceExport:
     stage_evidence_anchors: tuple[StageEvidenceAnchor, ...] = ()
     feedback_events: tuple[DraftOutcomeEvent, ...] = ()
     model_routes: Mapping[str, str] = field(default_factory=dict)
+    model_route_details: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     runtime_memory_context: Mapping[str, Any] = field(default_factory=dict)
     runtime_memory_profile: Mapping[str, Any] = field(default_factory=dict)
     runtime_loop_decision: Mapping[str, Any] = field(default_factory=dict)
     runtime_hitl_escalation: Mapping[str, Any] = field(default_factory=dict)
+    runtime_score_audit: Mapping[str, Any] = field(default_factory=dict)
     contract_version: str = REPLY_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
@@ -474,6 +476,7 @@ class TrainingBundle:
     draft_outcome_event: DraftOutcomeEvent
     stage_evidence_anchors: tuple[StageEvidenceAnchor, ...] = ()
     model_routes: Mapping[str, str] = field(default_factory=dict)
+    model_route_details: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     policy_resolution: PolicyResolutionSummary | None = None
     surfaced_negative_candidates: tuple[BundleNegativeCandidate, ...] = ()
     filtered_negative_candidates: tuple[BundleNegativeCandidate, ...] = ()

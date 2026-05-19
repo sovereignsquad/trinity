@@ -10,6 +10,8 @@ from trinity_core.schemas import CandidateRecord, HeadlineScoreSnapshot, ScoreFa
 
 def calibrate_candidate_scores(
     candidates: tuple[CandidateRecord, ...],
+    *,
+    historical_score_tuples: tuple[tuple[int, int, int], ...] = (),
 ) -> tuple[CandidateRecord, ...]:
     """Apply bounded calibration and audit rules before frontier ranking."""
 
@@ -18,7 +20,11 @@ def calibrate_candidate_scores(
         for candidate in candidates
     )
     return tuple(
-        _calibrate_candidate(candidate, repeated_tuple_count=tuple_counts[_score_tuple(candidate)])
+        _calibrate_candidate(
+            candidate,
+            repeated_tuple_count=tuple_counts[_score_tuple(candidate)],
+            historical_tuple_count=historical_score_tuples.count(_score_tuple(candidate)),
+        )
         for candidate in candidates
     )
 
@@ -27,6 +33,7 @@ def _calibrate_candidate(
     candidate: CandidateRecord,
     *,
     repeated_tuple_count: int,
+    historical_tuple_count: int,
 ) -> CandidateRecord:
     scores = candidate.scores
     proposed = scores.proposed_scores or HeadlineScoreSnapshot(
@@ -43,11 +50,19 @@ def _calibrate_candidate(
     impact_factors = _dimension_factors(scores, "impact")
     confidence_factors = _dimension_factors(scores, "confidence")
     delivery_factors = _dimension_factors(scores, "delivery_difficulty")
+    impact_support = _support_quality(scores, "impact")
+    confidence_support = _support_quality(scores, "confidence")
+    delivery_support = _support_quality(scores, "delivery_difficulty")
 
     if repeated_tuple_count > 1 and not impact_factors and not confidence_factors:
         confidence = max(1, confidence - 1)
         flags.append("unsupported_repeated_tuple")
         notes.append("Repeated score tuple lacked supporting impact/confidence factors.")
+
+    if historical_tuple_count >= 2 and impact_support < 1 and confidence_support < 1:
+        confidence = max(1, confidence - 1)
+        flags.append("cross_run_tuple_clustering")
+        notes.append("Same score tuple repeated across prior runs without strong support.")
 
     novelty = _factor_value(confidence_factors, "novelty_penalty")
     trust = _factor_value(confidence_factors, "trust_similarity")
@@ -83,11 +98,24 @@ def _calibrate_candidate(
         impact = max(1, impact - 1)
         flags.append("unsupported_high_impact")
         notes.append("High impact claim lacked explicit impact-support factors.")
+    elif impact >= 8 and impact_support < 1:
+        impact = max(1, impact - 1)
+        flags.append("weak_impact_rationale")
+        notes.append("High impact claim had weak rationale or evidence support.")
 
     if ease >= 8 and not delivery_factors:
         ease = max(1, ease - 1)
         flags.append("unsupported_easy_delivery")
         notes.append("High ease claim lacked explicit delivery-difficulty support.")
+    elif ease >= 8 and delivery_support < 1:
+        ease = max(1, ease - 1)
+        flags.append("weak_delivery_rationale")
+        notes.append("Easy delivery claim had weak rationale or evidence support.")
+
+    if confidence >= 8 and confidence_factors and confidence_support < 1:
+        confidence = max(1, confidence - 1)
+        flags.append("weak_confidence_rationale")
+        notes.append("High confidence claim had weak rationale or evidence support.")
 
     if (
         impact == scores.impact
@@ -130,3 +158,27 @@ def _factor_value(factors: tuple[ScoreFactor, ...], name: str) -> float:
         if factor.name == name:
             return float(factor.value)
     return 0.0
+
+
+def _support_quality(candidate_scores, dimension: str) -> int:
+    profile = candidate_scores.score_profile
+    if profile is None:
+        return 0
+    dimension_profile = getattr(profile, dimension, None)
+    if dimension_profile is None:
+        return 0
+    rationale = dimension_profile.rationale.strip()
+    factor_rationale_count = sum(
+        1 for factor in dimension_profile.factors if factor.rationale.strip()
+    )
+    evidence_anchor_count = len(dimension_profile.evidence_anchors) + sum(
+        len(factor.evidence_anchors) for factor in dimension_profile.factors
+    )
+    quality = 0
+    if len(rationale) >= 24:
+        quality += 1
+    if factor_rationale_count >= 1:
+        quality += 1
+    if evidence_anchor_count >= 1:
+        quality += 1
+    return quality

@@ -90,6 +90,14 @@ def accept_reply_behavior_policy(
     source_train_project_key: str | None = None,
     source_train_run_id: str | None = None,
     skeptical_notes: tuple[str, ...] = (),
+    score_governance_status: str | None = None,
+    score_governance_report_id: str | None = None,
+    score_governance_decision_id: str | None = None,
+    score_governance_trend_report_id: str | None = None,
+    score_governance_override_notes: tuple[str, ...] = (),
+    release_governance_report_id: str | None = None,
+    release_governance_decision_id: str | None = None,
+    release_governance_decision_status: str | None = None,
 ) -> ReplyPolicyAcceptanceResult:
     review = review_reply_behavior_policy(
         policy_file,
@@ -143,6 +151,14 @@ def accept_reply_behavior_policy(
         acceptance_mode=review.acceptance_mode,
         holdout_bundle_count=review.holdout_bundle_count,
         skeptical_notes=review.skeptical_notes,
+        score_governance_status=score_governance_status,
+        score_governance_report_id=score_governance_report_id,
+        score_governance_decision_id=score_governance_decision_id,
+        score_governance_trend_report_id=score_governance_trend_report_id,
+        score_governance_override_notes=score_governance_override_notes,
+        release_governance_report_id=release_governance_report_id,
+        release_governance_decision_id=release_governance_decision_id,
+        release_governance_decision_status=release_governance_decision_status,
     )
     store.accept(review.policy, artifact=artifact)
     disposition_reason = "Accepted as initial policy." if review.incumbent_score is None else (

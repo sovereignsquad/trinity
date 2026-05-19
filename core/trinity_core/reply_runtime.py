@@ -36,6 +36,7 @@ from trinity_core.ops.reply_policy_store import ReplyPolicyStore
 from trinity_core.ops.runtime_trace import (
     build_runtime_loop_decision_payload,
     build_runtime_memory_context_payload,
+    build_runtime_score_audit_payload,
     persist_runtime_trace,
 )
 from trinity_core.schemas import (
@@ -220,7 +221,10 @@ class ReplyRuntime:
             pipeline,
             evaluated=replace(
                 pipeline.evaluated,
-                records=calibrate_candidate_scores(pipeline.evaluated.records),
+                records=calibrate_candidate_scores(
+                    pipeline.evaluated.records,
+                    historical_score_tuples=self._historical_score_tuples(snapshot.company_id),
+                ),
             ),
         )
         frontier = build_frontier(pipeline.evaluated.records, limit=3)
@@ -313,6 +317,7 @@ class ReplyRuntime:
             ),
             stage_evidence_anchors=_build_stage_evidence_anchors(evidence_units),
             model_routes=self._model_routes(),
+            model_route_details=self._model_route_details(),
             runtime_memory_context=build_runtime_memory_context_payload(memory_context),
             runtime_memory_profile=memory_profile.prompt_payload(),
             runtime_loop_decision=build_runtime_loop_decision_payload(
@@ -322,6 +327,9 @@ class ReplyRuntime:
             runtime_hitl_escalation=dataclass_payload(hitl_escalation)
             if hitl_escalation is not None
             else {},
+            runtime_score_audit=build_runtime_score_audit_payload(
+                pipeline.evaluated.records
+            ),
         )
         self._persist_cycle(trace)
         ranked_with_trace = replace(ranked, trace_ref=str(self.store.export_path(cycle_id)))
@@ -354,6 +362,12 @@ class ReplyRuntime:
         payload = self.store.load_cycle(cycle_id)
         export_path = self.store.save_export(cycle_id, payload)
         return {"cycle_id": str(cycle_id), "trace_ref": str(export_path), "trace": payload}
+
+    def _historical_score_tuples(self, company_id: UUID) -> tuple[tuple[int, int, int], ...]:
+        tuples: list[tuple[int, int, int]] = []
+        for payload in self.store.load_recent_exports(company_id, limit=12):
+            tuples.extend(_score_tuples_from_trace_payload(payload))
+        return tuple(tuples)
 
     def export_training_bundle(
         self,
@@ -1033,6 +1047,21 @@ class ReplyRuntime:
             ),
         }
 
+    def _model_route_details(self) -> dict[str, dict[str, Any]]:
+        details = {
+            "generator": self.model_config.generator,
+            "refiner": self.model_config.refiner,
+            "evaluator": self.model_config.evaluator,
+        }
+        return {
+            role_name: {
+                "provider": route.provider,
+                "model": route.model,
+                "model_id": route.model_id,
+            }
+            for role_name, route in details.items()
+        }
+
 
 def thread_snapshot_from_payload(payload: dict[str, Any]) -> ThreadSnapshot:
     return adapter_thread_snapshot_from_payload(payload)
@@ -1142,6 +1171,14 @@ def training_bundle_from_payload(
         model_routes={
             str(key): str(value)
             for key, value in payload.get("model_routes", {}).items()
+        },
+        model_route_details={
+            str(key): {
+                str(detail_key): detail_value
+                for detail_key, detail_value in value.items()
+            }
+            for key, value in payload.get("model_route_details", {}).items()
+            if isinstance(value, dict)
         },
         policy_resolution=policy_resolution,
         surfaced_negative_candidates=surfaced_negative_candidates,
@@ -2082,3 +2119,32 @@ def _strategy_title(strategy: str, index: int) -> str:
         "clarify": "Clarify or risk-manage",
     }
     return mapping.get(strategy, f"Draft option {index}")
+
+
+def _score_tuples_from_trace_payload(payload: dict[str, Any]) -> tuple[tuple[int, int, int], ...]:
+    audit_candidates = payload.get("runtime_score_audit", {}).get("candidates", ())
+    tuples: list[tuple[int, int, int]] = []
+    for candidate in audit_candidates:
+        final_scores = candidate.get("final_scores", {})
+        if {"impact", "confidence", "ease"} <= final_scores.keys():
+            tuples.append(
+                (
+                    int(final_scores["impact"]),
+                    int(final_scores["confidence"]),
+                    int(final_scores["ease"]),
+                )
+            )
+    if tuples:
+        return tuple(tuples)
+
+    for candidate in payload.get("candidates", ()):
+        scores = candidate.get("scores", {})
+        if {"impact", "confidence", "ease"} <= scores.keys():
+            tuples.append(
+                (
+                    int(scores["impact"]),
+                    int(scores["confidence"]),
+                    int(scores["ease"]),
+                )
+            )
+    return tuple(tuples)

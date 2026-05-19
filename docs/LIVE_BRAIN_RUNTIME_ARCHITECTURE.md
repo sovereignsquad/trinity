@@ -4,6 +4,10 @@
 
 This document is the current runtime contract for `{trinity}` as the live brain behind `{reply}` and the future shared reasoning core for additional projects such as `{spot}`.
 
+Current repository release:
+
+- `0.1.4`
+
 It separates:
 
 - implemented runtime behavior
@@ -44,6 +48,7 @@ The current implemented live-brain slice is:
 5. `{reply}` can send bounded memory events and document registrations into runtime storage.
 6. `{trinity}` records structured outcomes and exports traces and training bundles.
 7. `{train}` can propose bounded policy artifacts, but accepted runtime behavior still flows back through `{trinity}` review and promotion.
+8. score-governance artifacts can now inform acceptance, release readiness, triage queues, triage resolution, and release-decision lineage without moving workflow ownership into downstream products.
 
 ## Current Module Ownership
 
@@ -68,8 +73,8 @@ The current implementation is split across these live modules:
 Important current reality:
 
 - the runtime seam is adapter-aware
-- the only implemented adapter is still `reply`
-- the concrete live-brain behavior is still mostly Reply-backed
+- live adapters now include `reply` plus bounded `spot` reasoning/review flows
+- the concrete drafting-heavy live-brain behavior is still mostly Reply-backed
 - the runtime does not yet expose first-class minority-report, loop-budget, or HiTL contracts in code
 
 ## Current Runtime Event Vocabulary
@@ -180,6 +185,9 @@ Implemented now:
 - document delete handling in runtime memory
 - trace and training-bundle export
 - bounded Train proposal and policy review flows
+- governance-aware acceptance checks
+- release-governance reporting and lineage artifacts
+- triage queue generation plus persisted triage-resolution artifacts
 
 Still not fully implemented:
 

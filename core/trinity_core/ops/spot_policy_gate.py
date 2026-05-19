@@ -85,6 +85,14 @@ def accept_spot_review_policy(
     source_train_project_key: str | None = None,
     source_train_run_id: str | None = None,
     skeptical_notes: tuple[str, ...] = (),
+    score_governance_status: str | None = None,
+    score_governance_report_id: str | None = None,
+    score_governance_decision_id: str | None = None,
+    score_governance_trend_report_id: str | None = None,
+    score_governance_override_notes: tuple[str, ...] = (),
+    release_governance_report_id: str | None = None,
+    release_governance_decision_id: str | None = None,
+    release_governance_decision_status: str | None = None,
 ) -> SpotPolicyAcceptanceResult:
     review = review_spot_review_policy(
         policy_file,
@@ -135,6 +143,14 @@ def accept_spot_review_policy(
         skeptical_notes=review.skeptical_notes,
         source_train_project_key=source_train_project_key,
         source_train_run_id=source_train_run_id,
+        score_governance_status=score_governance_status,
+        score_governance_report_id=score_governance_report_id,
+        score_governance_decision_id=score_governance_decision_id,
+        score_governance_trend_report_id=score_governance_trend_report_id,
+        score_governance_override_notes=score_governance_override_notes,
+        release_governance_report_id=release_governance_report_id,
+        release_governance_decision_id=release_governance_decision_id,
+        release_governance_decision_status=release_governance_decision_status,
     )
     store.accept(review.policy, artifact=artifact)
     if review.incumbent_score is None:
@@ -435,6 +451,13 @@ def _bundle_from_payload(payload: dict[str, Any]) -> SpotTrainingBundle:
                         else None
                     ),
                     review_recommended=bool(item.get("review_recommended", False)),
+                    impact=int(item.get("impact", 5)),
+                    confidence=int(item.get("confidence", 5)),
+                    ease=int(item.get("ease", 5)),
+                    quality_score=float(item.get("quality_score", 0.0)),
+                    urgency_score=float(item.get("urgency_score", 0.0)),
+                    freshness_score=float(item.get("freshness_score", 0.0)),
+                    feedback_score=float(item.get("feedback_score", 0.0)),
                 )
                 for item in result_payload["candidates"]
             ),

@@ -94,6 +94,7 @@ Operational support code:
 - trace persistence
 - accepted-artifact registry
 - adapter-scoped policy storage
+- score-governance reports, release reports, triage queues, and governance lineage artifacts
 - fixture replay tooling
 
 ### `apps/`

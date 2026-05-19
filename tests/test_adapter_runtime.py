@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from trinity_core.adapters import get_adapter_descriptor, list_supported_adapters
 from trinity_core.adapters.product.spot import SpotRuntime
-from trinity_core.cli import main
+from trinity_core.cli import main, run_cli
 from trinity_core.memory import ReplyMemoryStore
 from trinity_core.ops import resolve_adapter_runtime_paths
 from trinity_core.ops.cycle_store import RuntimeCyclePaths, RuntimeCycleStore
@@ -104,6 +104,8 @@ def test_trinity_runtime_supports_bounded_spot_reasoning(tmp_path: Path) -> None
         result.metadata["runtime_hitl_escalation"]["decision_target"]
         == "spot_row_review_decision"
     )
+    assert result.candidates[0].ice_score > 0
+    assert result.candidates[0].priority_score > 0.0
 
 
 def test_trinity_runtime_allows_high_confidence_benign_spot_auto_approval() -> None:
@@ -245,6 +247,45 @@ def test_trinity_runtime_persists_spot_review_outcome_memory(tmp_path: Path) -> 
     assert "disagreement" in families
 
 
+def test_spot_trace_persists_score_fields_for_candidates(tmp_path: Path) -> None:
+    runtime = SpotRuntime(
+        store=RuntimeCycleStore(
+            RuntimeCyclePaths(
+                adapter_name="spot",
+                root_dir=tmp_path / "runtime",
+                cycles_dir=tmp_path / "runtime" / "cycles",
+                exports_dir=tmp_path / "runtime" / "exports",
+            )
+        ),
+        memory_store=ReplyMemoryStore(
+            db_path=tmp_path / "runtime_memory.sqlite3",
+            adapter_name="spot",
+        ),
+    )
+    runtime.store.paths.cycles_dir.mkdir(parents=True, exist_ok=True)
+    runtime.store.paths.exports_dir.mkdir(parents=True, exist_ok=True)
+    request = SpotReasoningRequest(
+        company_id=__import__("uuid").uuid4(),
+        run_id="run-score",
+        row_ref="sheet1:45",
+        language="de",
+        message_text="We should boycott the zionists everywhere.",
+        occurred_at=__import__("datetime").datetime.now(__import__("datetime").UTC),
+    )
+
+    result = runtime.reason_spot(request)
+    payload = json.loads(Path(str(result.trace_ref)).read_text(encoding="utf-8"))
+    candidate = payload["spot_reasoning_result"]["candidates"][0]
+
+    assert candidate["impact"] >= 1
+    assert candidate["confidence"] >= 1
+    assert candidate["ease"] >= 1
+    assert candidate["ice_score"] == (
+        candidate["impact"] * candidate["confidence"] * candidate["ease"]
+    )
+    assert candidate["priority_score"] > 0.0
+
+
 def test_trinity_runtime_exports_spot_training_bundle(tmp_path: Path) -> None:
     runtime = SpotRuntime(
         store=RuntimeCycleStore(
@@ -339,9 +380,15 @@ def test_runtime_status_reports_unsupported_provider(
     status_exit = main(["runtime-status", "--adapter", "reply"])
 
     captured = capsys.readouterr()
+    payload = json.loads(captured.out)
     assert status_exit == 0
-    assert '"provider": "mlx"' in captured.out
-    assert '"provider_status": "unsupported"' in captured.out
+    assert payload["provider"] == "mlx"
+    assert payload["provider_status"] == "unsupported"
+    assert payload["contract_version"] == "trinity_cli.v1"
+    assert payload["status_schema_version"] == 4
+    assert payload["readiness"]["ready"] is False
+    assert payload["readiness"]["state"] == "unsupported"
+    assert "provider_unsupported" in payload["readiness"]["reasons"]
 
 
 def test_write_config_updates_route_provider_fields(
@@ -413,11 +460,78 @@ def test_runtime_status_supports_mistral_cli_provider(
     status_exit = main(["runtime-status", "--adapter", "reply"])
 
     captured = capsys.readouterr()
+    payload = json.loads(captured.out)
     assert status_exit == 0
-    assert '"provider": "mistral-cli"' in captured.out
-    assert '"provider_status": "configured"' in captured.out
-    assert '"mistral_cli_executable": "vibe"' in captured.out
-    assert '"mistral_cli_model_binding": "advisory"' in captured.out
+    assert payload["provider"] == "mistral-cli"
+    assert payload["provider_status"] == "configured"
+    assert payload["mistral_cli_executable"] == "vibe"
+    assert payload["mistral_cli_model_binding"] == "advisory"
+    assert payload["readiness"]["ready"] is True
+    assert payload["readiness"]["state"] == "configured"
+
+
+def test_runtime_status_reports_shared_model_inventory_match(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TRINITY_MODEL_CONFIG_PATH", str(tmp_path / "config.json"))
+    models_root = tmp_path / "models"
+    manifest_path = models_root / "manifests" / "trinity-model-manifest.json"
+    model_file = models_root / "llms" / "chat" / "granite" / "model.safetensors"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    model_file.parent.mkdir(parents=True, exist_ok=True)
+    model_file.write_text("placeholder", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_version": "trinity-model-inventory.v1",
+                "entries": [
+                    {
+                        "model_id": "granite-shared",
+                        "family": "granite",
+                        "capability": "chat",
+                        "format": "mlx",
+                        "local_path": "llms/chat/granite/model.safetensors",
+                        "provider_refs": {"deterministic": "granite4:350m"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TRINITY_MODELS_ROOT", str(models_root))
+
+    status_exit = main(["runtime-status", "--adapter", "reply"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert status_exit == 0
+    assert payload["status_schema_version"] == 4
+    assert payload["shared_model_inventory"]["enabled"] is True
+    assert payload["shared_model_inventory"]["entry_count"] == 1
+    assert payload["roles"]["generator"]["inventory_found"] is True
+    assert payload["roles"]["generator"]["inventory_model_id"] == "granite-shared"
+    assert payload["roles"]["generator"]["inventory_format"] == "mlx"
+    assert payload["roles"]["generator"]["inventory_path"] == str(model_file.resolve())
+    assert payload["roles"]["generator"]["inventory_status"] == "present"
+
+
+def test_run_cli_emits_structured_error_payload_for_invalid_request(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = run_cli(["runtime-status", "--adapter", "openmythos"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.err)
+
+    assert exit_code == 2
+    assert payload["ok"] is False
+    assert payload["contract_version"] == "trinity_cli.v1"
+    assert payload["error_schema_version"] == 1
+    assert payload["error"]["code"] == "invalid_request"
+    assert payload["error"]["command"] == "runtime-status"
+    assert payload["error"]["adapter"] == "openmythos"
 
 
 def test_write_config_persists_mistral_cli_fields(
@@ -458,3 +572,150 @@ def test_write_config_persists_mistral_cli_fields(
     assert '"mistral_cli_args": [' in captured.out
     assert '"mistral_cli_mode": "vibe"' in captured.out
     assert '"mistral_cli_model_binding": "advisory"' in captured.out
+
+
+def test_write_config_persists_role_model_ids(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TRINITY_MODEL_CONFIG_PATH", str(tmp_path / "config.json"))
+
+    exit_code = main(
+        [
+            "write-config",
+            "--adapter",
+            "reply",
+            "--provider",
+            "ollama",
+            "--generator-model",
+            "granite4:350m",
+            "--generator-model-id",
+            "granite-4.0-h-350m-4bit",
+            "--refiner-model",
+            "mistral:latest",
+            "--refiner-model-id",
+            "mistral-latest-shared",
+            "--evaluator-model",
+            "qwen2.5:7b",
+            "--evaluator-model-id",
+            "qwen2.5-7b-shared",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 0
+    assert payload["generator"]["model_id"] == "granite-4.0-h-350m-4bit"
+    assert payload["refiner"]["model_id"] == "mistral-latest-shared"
+    assert payload["evaluator"]["model_id"] == "qwen2.5-7b-shared"
+
+
+def test_runtime_status_reports_missing_shared_model_asset_by_model_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TRINITY_MODEL_CONFIG_PATH", str(tmp_path / "config.json"))
+    models_root = tmp_path / "models"
+    manifest_path = models_root / "manifests" / "trinity-model-manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_version": "trinity-model-inventory.v1",
+                "entries": [
+                    {
+                        "model_id": "granite-missing",
+                        "family": "granite",
+                        "capability": "chat",
+                        "format": "mlx",
+                        "local_path": "llms/chat/granite-missing/model.safetensors",
+                        "provider_refs": {"deterministic": "some-other-route"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TRINITY_MODELS_ROOT", str(models_root))
+
+    write_exit = main(
+        [
+            "write-config",
+            "--adapter",
+            "reply",
+            "--provider",
+            "deterministic",
+            "--generator-model",
+            "granite4:350m",
+            "--generator-model-id",
+            "granite-missing",
+        ]
+    )
+    assert write_exit == 0
+    capsys.readouterr()
+
+    status_exit = main(["runtime-status", "--adapter", "reply"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status_exit == 0
+    assert payload["status_schema_version"] == 4
+    assert payload["roles"]["generator"]["inventory_found"] is True
+    assert payload["roles"]["generator"]["inventory_model_id"] == "granite-missing"
+    assert payload["roles"]["generator"]["inventory_status"] == "missing"
+
+
+def test_runtime_status_reports_provider_managed_inventory_asset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TRINITY_MODEL_CONFIG_PATH", str(tmp_path / "config.json"))
+    models_root = tmp_path / "models"
+    manifest_path = models_root / "manifests" / "trinity-model-manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_version": "trinity-model-inventory.v1",
+                "entries": [
+                    {
+                        "model_id": "ollama-managed-granite",
+                        "family": "granite",
+                        "capability": "chat",
+                        "format": "ollama",
+                        "provider_modes": ["ollama"],
+                        "provider_refs": {"ollama": "granite4:350m"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("TRINITY_MODELS_ROOT", str(models_root))
+
+    write_exit = main(
+        [
+            "write-config",
+            "--adapter",
+            "reply",
+            "--provider",
+            "ollama",
+            "--generator-model",
+            "granite4:350m",
+            "--generator-model-id",
+            "ollama-managed-granite",
+        ]
+    )
+    assert write_exit == 0
+    capsys.readouterr()
+
+    status_exit = main(["runtime-status", "--adapter", "reply"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status_exit == 0
+    assert payload["status_schema_version"] == 4
+    assert payload["roles"]["generator"]["inventory_found"] is True
+    assert payload["roles"]["generator"]["inventory_model_id"] == "ollama-managed-granite"
+    assert payload["roles"]["generator"]["inventory_status"] == "provider_managed"

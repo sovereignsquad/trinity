@@ -12,6 +12,7 @@ Current local development baseline:
 - `Python 3.12+`
 - `uv`
 - `Swift 6.1` toolchain or Xcode with Swift Package Manager support
+- current repository release `0.1.4`
 
 You can use the runtime and CLI without building the native shell, but the repository currently assumes a macOS-first development environment.
 
@@ -92,6 +93,13 @@ If you only want a faster smoke path first:
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
 ```
 
+If you want a broader consumer-compatibility check without running the full suite first:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot
+```
+
 ## 5. Build The macOS Shell
 
 If you want the native shell:
@@ -157,6 +165,12 @@ Check the resolved runtime status:
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
 ```
 
+Inspect the governance-enabled CLI surface:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli --help
+```
+
 ## 8. Optional Gobii Setup
 
 You do not need Gobii to install or use the core local runtime.
@@ -179,6 +193,7 @@ uv sync --dev
 uv run ruff check .
 uv run pytest
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot
 ```
 
 If you also want the native shell baseline:

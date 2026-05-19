@@ -224,6 +224,15 @@ class SpotRuntime:
                         "rationale": candidate.rationale,
                         "threat_label_hint": candidate.threat_label_hint,
                         "review_recommended": candidate.review_recommended,
+                        "impact": candidate.impact,
+                        "confidence": candidate.confidence,
+                        "ease": candidate.ease,
+                        "quality_score": candidate.quality_score,
+                        "urgency_score": candidate.urgency_score,
+                        "freshness_score": candidate.freshness_score,
+                        "feedback_score": candidate.feedback_score,
+                        "ice_score": candidate.ice_score,
+                        "priority_score": candidate.priority_score,
                     }
                     for candidate in result.candidates
                 ],
@@ -370,6 +379,13 @@ class SpotRuntime:
             + memory_note,
             threat_label_hint=primary_label if has_risky or has_hostile else "Not Antisemitic",
             review_recommended=has_hostile,
+            impact=9 if has_hostile else 8,
+            confidence=8 if has_hostile else 7,
+            ease=4 if has_hostile else 5,
+            quality_score=86.0 if has_hostile else 78.0,
+            urgency_score=88.0 if has_hostile else 74.0,
+            freshness_score=72.0,
+            feedback_score=10.0,
         )
         review = SpotReasoningCandidate(
             candidate_key="review",
@@ -380,6 +396,13 @@ class SpotRuntime:
             ),
             threat_label_hint=primary_label if has_risky else "Not Antisemitic",
             review_recommended=has_risky,
+            impact=8 if has_risky else 6,
+            confidence=6 if has_risky else 5,
+            ease=3 if has_risky else 4,
+            quality_score=74.0 if has_risky else 62.0,
+            urgency_score=70.0 if has_risky else 52.0,
+            freshness_score=72.0,
+            feedback_score=8.0,
         )
         benign = SpotReasoningCandidate(
             candidate_key="benign",
@@ -387,6 +410,13 @@ class SpotRuntime:
             rationale="No deterministic signal alone is sufficient for a stronger classification.",
             threat_label_hint="Not Antisemitic",
             review_recommended=False,
+            impact=3 if has_risky or has_hostile else 5,
+            confidence=7 if not has_risky and not has_hostile else 4,
+            ease=8 if not has_risky and not has_hostile else 6,
+            quality_score=68.0 if not has_risky and not has_hostile else 40.0,
+            urgency_score=44.0 if not has_risky and not has_hostile else 30.0,
+            freshness_score=72.0,
+            feedback_score=8.0 if not has_risky and not has_hostile else 4.0,
         )
         if has_hostile:
             return (primary, review, benign)
@@ -481,6 +511,13 @@ class SpotRuntime:
             rationale=review.rationale + " " + " ".join(review_note_parts),
             threat_label_hint=review.threat_label_hint,
             review_recommended=True,
+            impact=review.impact,
+            confidence=min(10, review.confidence + 1),
+            ease=review.ease,
+            quality_score=min(100.0, review.quality_score + 4.0),
+            urgency_score=review.urgency_score,
+            freshness_score=review.freshness_score,
+            feedback_score=review.feedback_score,
         )
         return (reworked_review, *candidates[1:])
 
@@ -618,6 +655,13 @@ def spot_training_bundle_from_payload(
                     else None
                 ),
                 review_recommended=bool(item.get("review_recommended", False)),
+                impact=int(item.get("impact", 5)),
+                confidence=int(item.get("confidence", 5)),
+                ease=int(item.get("ease", 5)),
+                quality_score=float(item.get("quality_score", 0.0)),
+                urgency_score=float(item.get("urgency_score", 0.0)),
+                freshness_score=float(item.get("freshness_score", 0.0)),
+                feedback_score=float(item.get("feedback_score", 0.0)),
             )
             for item in result_payload.get("candidates", [])
         ),

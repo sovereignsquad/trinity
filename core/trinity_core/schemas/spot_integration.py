@@ -54,11 +54,37 @@ class SpotReasoningCandidate:
     rationale: str
     threat_label_hint: str | None = None
     review_recommended: bool = False
+    impact: int = 5
+    confidence: int = 5
+    ease: int = 5
+    quality_score: float = 0.0
+    urgency_score: float = 0.0
+    freshness_score: float = 0.0
+    feedback_score: float = 0.0
 
     def __post_init__(self) -> None:
         _require_text(self.candidate_key, field_name="candidate_key")
         _require_text(self.interpretation, field_name="interpretation")
         _require_text(self.rationale, field_name="rationale")
+        for value in (self.impact, self.confidence, self.ease):
+            if value < 1 or value > 10:
+                raise ValueError("impact, confidence, and ease must be between 1 and 10.")
+
+    @property
+    def ice_score(self) -> int:
+        return self.impact * self.confidence * self.ease
+
+    @property
+    def priority_score(self) -> float:
+        ice = (self.ice_score / 1000.0) * 100.0
+        return round(
+            (float(self.quality_score) * 0.35)
+            + (float(self.urgency_score) * 0.25)
+            + (float(self.freshness_score) * 0.20)
+            + (float(self.feedback_score) * 0.10)
+            + (ice * 0.10),
+            6,
+        )
 
 
 class SpotReviewDisposition(StrEnum):

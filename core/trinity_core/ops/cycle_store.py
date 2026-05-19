@@ -99,6 +99,23 @@ class RuntimeCycleStore:
         write_json_atomic(path, payload)
         return path
 
+    def load_recent_exports(
+        self,
+        company_id: UUID | str,
+        *,
+        limit: int = 20,
+    ) -> tuple[dict[str, Any], ...]:
+        export_dir = self._company_dir(company_id) / "exports"
+        paths = sorted(
+            export_dir.glob("*.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        return tuple(
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in paths[: max(0, limit)]
+        )
+
     def _company_dir(self, company_id: UUID | str) -> Path:
         companies_dir = self.paths.companies_dir or (self.paths.root_dir / "companies")
         company_dir = companies_dir / str(company_id).strip().lower()

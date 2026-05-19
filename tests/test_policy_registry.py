@@ -47,6 +47,14 @@ def test_promote_persists_immutable_version_and_current_pointer(tmp_path: Path) 
         acceptance_mode="holdout",
         holdout_bundle_count=2,
         skeptical_notes=("monitor first 20 sends",),
+        score_governance_status="accepted",
+        score_governance_report_id="report-123",
+        score_governance_decision_id="decision-123",
+        score_governance_trend_report_id="trend-123",
+        score_governance_override_notes=("approved by release lead",),
+        release_governance_report_id="release-report-123",
+        release_governance_decision_id="release-decision-123",
+        release_governance_decision_status="approve",
     )
 
     assert transition.action == "PROMOTE"
@@ -58,6 +66,7 @@ def test_promote_persists_immutable_version_and_current_pointer(tmp_path: Path) 
     assert transition.source_review_decision_id == "review-123"
     assert transition.acceptance_mode == "holdout"
     assert transition.holdout_bundle_count == 2
+    assert transition.score_governance_status == "accepted"
     assert registry.current("reply_behavior_policy").version == "v1"
     assert registry.version_path("reply_behavior_policy", "v1").exists()
     assert registry.current_path("reply_behavior_policy").exists()
@@ -67,6 +76,13 @@ def test_promote_persists_immutable_version_and_current_pointer(tmp_path: Path) 
     assert pointer["acceptance_mode"] == "holdout"
     assert pointer["holdout_bundle_count"] == 2
     assert pointer["skeptical_notes"] == ["monitor first 20 sends"]
+    assert pointer["score_governance_report_id"] == "report-123"
+    assert pointer["score_governance_decision_id"] == "decision-123"
+    assert pointer["score_governance_trend_report_id"] == "trend-123"
+    assert pointer["score_governance_override_notes"] == ["approved by release lead"]
+    assert pointer["release_governance_report_id"] == "release-report-123"
+    assert pointer["release_governance_decision_id"] == "release-decision-123"
+    assert pointer["release_governance_decision_status"] == "approve"
 
 
 def test_record_review_persists_review_artifact(tmp_path: Path) -> None:

@@ -59,6 +59,7 @@ class ProviderComparisonFixtureResult:
     edit_distance: float = 1.0
     suggestion: str | None = None
     model_routes: Mapping[str, str] = field(default_factory=dict)
+    model_route_details: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
     role_metrics: Mapping[str, ProviderRoleCallMetrics] = field(default_factory=dict)
 
 
@@ -77,6 +78,7 @@ class ProviderComparisonRouteSummary:
     average_edit_distance: float
     fallback_fixture_count: int
     routes: Mapping[str, str]
+    route_details: Mapping[str, Mapping[str, object]]
     role_metrics: Mapping[str, ProviderRoleCallMetrics]
 
 
@@ -332,6 +334,7 @@ def _run_route_set_against_reply_fixtures(
                     edit_distance=edit_distance,
                     suggestion=suggestion,
                     model_routes=_route_identity(route_set.config),
+                    model_route_details=_route_details(route_set.config),
                     role_metrics=role_metrics,
                 )
             )
@@ -354,6 +357,7 @@ def _run_route_set_against_reply_fixtures(
                         if metrics.failed_calls > 0
                     ),
                     model_routes=_route_identity(route_set.config),
+                    model_route_details=_route_details(route_set.config),
                     role_metrics=role_metrics,
                 )
             )
@@ -395,6 +399,7 @@ def _summarize_route_set(
         average_edit_distance=_average(result.edit_distance for result in success_results),
         fallback_fixture_count=fallback_fixture_count,
         routes=_route_identity(route_set.config),
+        route_details=_route_details(route_set.config),
         role_metrics=role_metrics,
     )
 
@@ -436,6 +441,7 @@ def _role_route_from_payload(
         model=str(role_payload.get("model") or "").strip(),
         temperature=float(role_payload.get("temperature") or 0.0),
         keep_alive=str(role_payload.get("keep_alive") or "10m").strip(),
+        model_id=str(role_payload.get("model_id") or "").strip() or None,
     )
 
 
@@ -444,6 +450,22 @@ def _route_identity(config: TrinityModelConfig) -> dict[str, str]:
         "generator": f"{config.generator.provider}:{config.generator.model}",
         "refiner": f"{config.refiner.provider}:{config.refiner.model}",
         "evaluator": f"{config.evaluator.provider}:{config.evaluator.model}",
+    }
+
+
+def _route_details(config: TrinityModelConfig) -> dict[str, dict[str, object]]:
+    return {
+        "generator": _route_detail_payload(config.generator),
+        "refiner": _route_detail_payload(config.refiner),
+        "evaluator": _route_detail_payload(config.evaluator),
+    }
+
+
+def _route_detail_payload(route: TrinityRoleRoute) -> dict[str, object]:
+    return {
+        "provider": route.provider,
+        "model": route.model,
+        "model_id": route.model_id,
     }
 
 

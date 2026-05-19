@@ -41,6 +41,14 @@ class AcceptedArtifactTransitionRecord:
     acceptance_mode: str | None = None
     holdout_bundle_count: int = 0
     skeptical_notes: tuple[str, ...] = ()
+    score_governance_status: str | None = None
+    score_governance_report_id: str | None = None
+    score_governance_decision_id: str | None = None
+    score_governance_trend_report_id: str | None = None
+    score_governance_override_notes: tuple[str, ...] = ()
+    release_governance_report_id: str | None = None
+    release_governance_decision_id: str | None = None
+    release_governance_decision_status: str | None = None
 
     def __post_init__(self) -> None:
         if self.action not in {"PROMOTE", "ROLLBACK"}:
@@ -132,6 +140,14 @@ class AcceptedArtifactRegistry:
         acceptance_mode: str | None = None,
         holdout_bundle_count: int = 0,
         skeptical_notes: tuple[str, ...] = (),
+        score_governance_status: str | None = None,
+        score_governance_report_id: str | None = None,
+        score_governance_decision_id: str | None = None,
+        score_governance_trend_report_id: str | None = None,
+        score_governance_override_notes: tuple[str, ...] = (),
+        release_governance_report_id: str | None = None,
+        release_governance_decision_id: str | None = None,
+        release_governance_decision_status: str | None = None,
     ) -> AcceptedArtifactTransitionRecord:
         action_time = promoted_at or artifact.accepted_at
         if action_time.tzinfo is None:
@@ -140,9 +156,7 @@ class AcceptedArtifactRegistry:
         version_path = self.version_path(artifact.artifact_key, artifact.version)
         if version_path.exists():
             detail = f"{artifact.artifact_key}:{artifact.version}"
-            raise ValueError(
-                f"Accepted artifact version already exists for {detail}"
-            )
+            raise ValueError(f"Accepted artifact version already exists for {detail}")
         self._write_json(version_path, dataclass_payload(artifact))
         transition = AcceptedArtifactTransitionRecord(
             artifact=artifact,
@@ -159,6 +173,38 @@ class AcceptedArtifactRegistry:
             acceptance_mode=acceptance_mode,
             holdout_bundle_count=int(holdout_bundle_count),
             skeptical_notes=tuple(str(note) for note in skeptical_notes if str(note).strip()),
+            score_governance_status=(
+                str(score_governance_status).strip() if score_governance_status else None
+            ),
+            score_governance_report_id=(
+                str(score_governance_report_id).strip() if score_governance_report_id else None
+            ),
+            score_governance_decision_id=(
+                str(score_governance_decision_id).strip() if score_governance_decision_id else None
+            ),
+            score_governance_trend_report_id=(
+                str(score_governance_trend_report_id).strip()
+                if score_governance_trend_report_id
+                else None
+            ),
+            score_governance_override_notes=tuple(
+                str(note) for note in score_governance_override_notes if str(note).strip()
+            ),
+            release_governance_report_id=(
+                str(release_governance_report_id).strip()
+                if release_governance_report_id
+                else None
+            ),
+            release_governance_decision_id=(
+                str(release_governance_decision_id).strip()
+                if release_governance_decision_id
+                else None
+            ),
+            release_governance_decision_status=(
+                str(release_governance_decision_status).strip()
+                if release_governance_decision_status
+                else None
+            ),
         )
         self._write_transition(transition)
         self._write_current_pointer(transition)
@@ -196,6 +242,20 @@ class AcceptedArtifactRegistry:
             acceptance_mode=current_pointer.get("acceptance_mode"),
             holdout_bundle_count=int(current_pointer.get("holdout_bundle_count") or 0),
             skeptical_notes=tuple(current_pointer.get("skeptical_notes") or ()),
+            score_governance_status=current_pointer.get("score_governance_status"),
+            score_governance_report_id=current_pointer.get("score_governance_report_id"),
+            score_governance_decision_id=current_pointer.get("score_governance_decision_id"),
+            score_governance_trend_report_id=current_pointer.get(
+                "score_governance_trend_report_id"
+            ),
+            score_governance_override_notes=tuple(
+                current_pointer.get("score_governance_override_notes") or ()
+            ),
+            release_governance_report_id=current_pointer.get("release_governance_report_id"),
+            release_governance_decision_id=current_pointer.get("release_governance_decision_id"),
+            release_governance_decision_status=current_pointer.get(
+                "release_governance_decision_status"
+            ),
         )
         self._write_transition(transition)
         self._write_current_pointer(transition)
@@ -227,6 +287,24 @@ class AcceptedArtifactRegistry:
             _transition_from_payload(_read_json(path))
             for path in sorted(transitions_dir.glob("*.json"))
         ]
+        return records
+
+    def artifact_keys(self) -> list[str]:
+        keys: list[str] = []
+        if not self.paths.artifacts_dir.exists():
+            return keys
+        for current_path in sorted(self.paths.artifacts_dir.glob("*/current.json")):
+            payload = _read_json(current_path)
+            artifact_payload = payload.get("artifact", {})
+            artifact_key = str(artifact_payload.get("artifact_key") or "").strip()
+            if artifact_key:
+                keys.append(artifact_key)
+        return keys
+
+    def all_transition_records(self) -> list[AcceptedArtifactTransitionRecord]:
+        records: list[AcceptedArtifactTransitionRecord] = []
+        for artifact_key in self.artifact_keys():
+            records.extend(self.history(artifact_key))
         return records
 
     def artifact_dir(self, artifact_key: str) -> Path:
@@ -266,7 +344,8 @@ class AcceptedArtifactRegistry:
     def _write_transition(self, transition: AcceptedArtifactTransitionRecord) -> Path:
         timestamp = transition.promoted_at.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
         filename = (
-            f"{timestamp}_{transition.action.lower()}_{_safe_path_component(transition.artifact.version)}.json"
+            f"{timestamp}_{transition.action.lower()}_"
+            f"{_safe_path_component(transition.artifact.version)}.json"
         )
         path = self.transitions_dir(transition.artifact.artifact_key) / filename
         self._write_json(path, dataclass_payload(transition))
@@ -288,6 +367,14 @@ class AcceptedArtifactRegistry:
             "acceptance_mode": transition.acceptance_mode,
             "holdout_bundle_count": transition.holdout_bundle_count,
             "skeptical_notes": transition.skeptical_notes,
+            "score_governance_status": transition.score_governance_status,
+            "score_governance_report_id": transition.score_governance_report_id,
+            "score_governance_decision_id": transition.score_governance_decision_id,
+            "score_governance_trend_report_id": transition.score_governance_trend_report_id,
+            "score_governance_override_notes": transition.score_governance_override_notes,
+            "release_governance_report_id": transition.release_governance_report_id,
+            "release_governance_decision_id": transition.release_governance_decision_id,
+            "release_governance_decision_status": transition.release_governance_decision_status,
         }
         path = self.current_path(transition.artifact.artifact_key)
         self._write_json(path, dataclass_payload(payload))
@@ -329,6 +416,16 @@ def _transition_from_payload(payload: dict[str, Any]) -> AcceptedArtifactTransit
         acceptance_mode=payload.get("acceptance_mode"),
         holdout_bundle_count=int(payload.get("holdout_bundle_count", 0)),
         skeptical_notes=tuple(str(item) for item in payload.get("skeptical_notes", ())),
+        score_governance_status=payload.get("score_governance_status"),
+        score_governance_report_id=payload.get("score_governance_report_id"),
+        score_governance_decision_id=payload.get("score_governance_decision_id"),
+        score_governance_trend_report_id=payload.get("score_governance_trend_report_id"),
+        score_governance_override_notes=tuple(
+            str(item) for item in payload.get("score_governance_override_notes", ())
+        ),
+        release_governance_report_id=payload.get("release_governance_report_id"),
+        release_governance_decision_id=payload.get("release_governance_decision_id"),
+        release_governance_decision_status=payload.get("release_governance_decision_status"),
     )
 
 

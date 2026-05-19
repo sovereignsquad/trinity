@@ -1,5 +1,9 @@
 # Contributing
 
+Current release line:
+
+- `0.1.4`
+
 ## Principles
 
 - Keep the workflow contract explicit.
@@ -17,6 +21,13 @@ uv run pytest
 cd apps/macos && swift build
 ```
 
+If your change touches adapter, CLI, or policy/governance contracts, also verify the downstream runtime seams still resolve:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot
+```
+
 ## Documentation
 
 If your change affects:
@@ -28,4 +39,3 @@ If your change affects:
 - handoff context
 
 then update the relevant file under `docs/`.
-
