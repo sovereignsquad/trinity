@@ -1,4 +1,4 @@
-"""Mistral CLI-backed provider implementation for Trinity role runners."""
+"""Bounded Mistral CLI-backed provider implementation for Trinity role runners."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ class MistralCLIError(ModelProviderError):
 
 @dataclass(frozen=True)
 class MistralCLIModelProvider:
-    """Concrete provider for Mistral CLI programmatic execution."""
+    """Concrete provider for the current vibe-only Mistral CLI execution path."""
 
     executable: str
     extra_args: tuple[str, ...] = ()

@@ -56,7 +56,7 @@ def build_gobii_workflow_bundle(
 ) -> GobiiRecurringWorkflowBundle:
     if job.job_kind is not ControlPlaneJobKind.REPLY_PROVIDER_COMPARISON:
         raise ValueError(
-            "The first Gobii recurring workflow proof is limited to "
+            "The current Gobii recurring workflow slice is limited to "
             "`reply_provider_comparison` jobs."
         )
     resolved_repo_root = Path(repo_root or Path(__file__).resolve().parents[3]).resolve()

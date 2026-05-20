@@ -1,16 +1,15 @@
-"""Autonomous handoff client for invoking the sibling Train optimizer."""
+"""Bounded Train handoff client for invoking the sibling Train optimizer."""
 
 from __future__ import annotations
 
 import json
 import os
 import subprocess
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 from trinity_core.adapters import REPLY_ADAPTER_NAME, SPOT_ADAPTER_NAME
+from trinity_core.ops.relation_health import request_train_json
 from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 
 DEFAULT_TRAIN_API_BASE_URL = "http://127.0.0.1:8000"
@@ -97,18 +96,10 @@ def propose_reply_policy_via_train_api(
         or os.environ.get("TRINITY_TRAIN_API_BASE_URL")
         or DEFAULT_TRAIN_API_BASE_URL
     ).rstrip("/")
-    request = urllib.request.Request(
-        f"{base_url}/v1/trinity/reply/policies/propose",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    return request_train_json(
+        url=f"{base_url}/v1/trinity/reply/policies/propose",
+        payload=payload,
     )
-    try:
-        with urllib.request.urlopen(request) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Train API request failed with {exc.code}: {body}") from exc
 
 
 def propose_spot_review_policy_via_train_api(
@@ -134,18 +125,10 @@ def propose_spot_review_policy_via_train_api(
         or os.environ.get("TRINITY_TRAIN_API_BASE_URL")
         or DEFAULT_TRAIN_API_BASE_URL
     ).rstrip("/")
-    request = urllib.request.Request(
-        f"{base_url}/v1/trinity/spot/policies/propose",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    return request_train_json(
+        url=f"{base_url}/v1/trinity/spot/policies/propose",
+        payload=payload,
     )
-    try:
-        with urllib.request.urlopen(request) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Train API request failed with {exc.code}: {body}") from exc
 
 
 def propose_reply_policy_via_train_cli(

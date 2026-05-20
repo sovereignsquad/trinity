@@ -16,3 +16,7 @@ runtime-data/
 logs/
 caches/
 tmp/
+.env
+.env.local
+.env.*
+!.env.example

@@ -102,39 +102,58 @@ Primary responsibility split:
 
 ## CLI
 
+The CLI surface is now large enough that this README only summarizes the main categories. The authoritative command list lives in [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md).
+
 Preferred generic commands:
 
 - `suggest --adapter <adapter>`
 - `record-outcome --adapter <adapter>`
+- `ingest-memory-event --adapter <adapter>`
+- `register-document --adapter <adapter>`
+- `get-prepared-draft --adapter <adapter> --company-id <company> --thread-ref <thread>`
+- `refresh-prepared-draft --adapter <adapter> --company-id <company> --thread-ref <thread>`
+- `plan-prepared-draft-refresh --adapter <adapter> --company-id <company>`
+- `schedule-prepared-draft-refresh --adapter <adapter> --company-id <company>`
 - `export-trace --adapter <adapter>`
 - `export-training-bundle --adapter <adapter>`
 - `runtime-status --adapter <adapter>`
 - `show-config --adapter <adapter>`
 - `write-config --adapter <adapter>`
-- `ingest-memory-event --adapter <adapter>`
-- `register-document --adapter <adapter>`
-- `get-prepared-draft --adapter <adapter> --company-id <company> --thread-ref <thread>`
-- `refresh-prepared-draft --adapter <adapter> --company-id <company> --thread-ref <thread> [--reason <reason>] [--overwrite-mode <mode>]`
-- `plan-prepared-draft-refresh --adapter <adapter> --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
-- `schedule-prepared-draft-refresh --adapter <adapter> --company-id <company> [--limit <n>] [--stale-after-minutes <n>]`
+- `train-status`
+- `provider-smoke`
+- `check-reply-compatibility`
+- `gobii-status`
 - `compare-providers --adapter <adapter>`
 - `curate-eval-dataset --adapter <adapter> --dataset-name <name> --cycle-id <uuid> --selection-reason <reason>`
 - `replay-eval-dataset --dataset-file <path>`
+- `report-score-health --adapter <adapter> --report-name <name>`
+- `review-score-health --report-file <path>`
+- `compare-score-health --trend-report-name <name> --report-file <path> ...`
 - `make-control-job --adapter <adapter>`
 - `run-control-job --job-file <path>`
 - `control-run-status --adapter <adapter> --run-id <uuid>`
 - `make-gobii-workflow --job-file <path> --schedule <expr>`
+- `make-gobii-profile-enrichment`
 - `register-gobii-workflow --bundle-file <path> [options]`
 - `submit-gobii-task --adapter <adapter> --prompt <text> [options]`
+- `submit-gobii-profile-enrichment`
 - `gobii-task-result --adapter <adapter> --task-id <id> [options]`
 - `list-gobii-tasks --adapter <adapter> [options]`
 - `cancel-gobii-task --adapter <adapter> --task-id <id> [options]`
 - `normalize-gobii-task --adapter <adapter> --input-file <path>`
+- `normalize-gobii-profile-enrichment`
 - `check-score-governance --report-file <path> [--decision-file <path>] [--trend-report-file <path>]`
 - `check-release-governance --report-file <path> --release-report-name <name> [--decision-file <path>]`
 - `list-score-governance-work --adapter <adapter> --triage-report-name <name>`
 - `resolve-score-governance-item --adapter <adapter> --item-id <id> --resolution-status <status>`
 - `record-release-governance-decision --release-report-file <path> --decision-status <status>`
+- `governance-status --adapter <adapter>`
+- `report-cross-adapter-scores --report-name <name>`
+- `report-score-governance-dashboard --report-name <name>`
+- `export-post-training-dataset --adapter <adapter> --dataset-name <name>`
+- `build-post-training-split --dataset-file <path> --split-name <name>`
+- `curate-post-training-example --dataset-file <path> --example-id <id> --annotation-status <status> --reason <text>`
+- `promote-post-training-dataset --dataset-file <path> --dataset-status <status> --reason <text>`
 
 Current implemented examples:
 
@@ -146,9 +165,14 @@ Compatibility aliases:
 
 - `reply-suggest`
 - `reply-record-outcome`
+- `reply-ingest-memory-event`
+- `reply-register-document`
+- `reply-get-prepared-draft`
+- `reply-refresh-prepared-draft`
 - `reply-export-trace`
 - `reply-export-training-bundle`
 - `reply-train-propose-policy`
+- `reply-policy-review`
 - `reply-policy-review-surface`
 - `reply-run-shadow-fixtures`
 - `reply-policy-accept`
@@ -266,6 +290,8 @@ Do not:
 - [docs/GOBII_NORMALIZATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/GOBII_NORMALIZATION_CONTRACT.md)
 - [docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md)
 - [docs/TRINITY_OVERVIEW.md](/Users/Shared/Projects/trinity/docs/TRINITY_OVERVIEW.md)
+- [docs/RELATIONSHIP_HEALTH.md](/Users/Shared/Projects/trinity/docs/RELATIONSHIP_HEALTH.md)
+- [docs/RELATIONSHIP_HARDENING_PLAN.md](/Users/Shared/Projects/trinity/docs/RELATIONSHIP_HARDENING_PLAN.md)
 - [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
 - [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
 - [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)

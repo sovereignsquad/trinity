@@ -1,4 +1,4 @@
-"""Minimal Gobii agent API client for bounded recurring Trinity workflow proofs."""
+"""Bounded Gobii agent API client for Trinity recurring-workflow registration."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class GobiiClientError(RuntimeError):
 
 @dataclass(frozen=True)
 class GobiiAgentClient:
-    """Narrow Gobii Agent API client for create/update operations."""
+    """Narrow Gobii Agent API client for bounded create and schedule-update operations."""
 
     base_url: str
     api_key: str

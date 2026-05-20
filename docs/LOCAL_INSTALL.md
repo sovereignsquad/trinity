@@ -137,13 +137,38 @@ Install `mistral-cli` only if you intend to use the current bounded provider pat
 Example verification:
 
 ```bash
-mistral --help
+vibe --help
 ```
 
 Important current limitation:
 
 - the repository's current `mistral-cli` provider is the bounded `vibe`-path integration
 - configured route model names remain explicit in Trinity config and traces, but are still advisory rather than CLI-enforced
+
+### Local Secret File
+
+The CLI reads provider credentials from environment variables. The repository now reserves one gitignored local file for that:
+
+- [`.env.local`](/Users/Shared/Projects/trinity/.env.local)
+
+One tracked example file is also available:
+
+- [`.env.example`](/Users/Shared/Projects/trinity/.env.example)
+
+Load the local secret file into your shell before running Trinity commands:
+
+```bash
+cd /Users/Shared/Projects/trinity
+set -a
+source .env.local
+set +a
+```
+
+Then verify the `mistral-cli` lane:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli provider-smoke --adapter reply --role generator
+```
 
 ## 7. Optional Runtime Configuration
 
@@ -177,11 +202,26 @@ You do not need Gobii to install or use the core local runtime.
 
 Gobii is only needed for the bounded browser-agent ops lanes. If you want those flows later, configure Gobii only after the base runtime and CLI already work locally.
 
+If you store Gobii credentials in [`.env.local`](/Users/Shared/Projects/trinity/.env.local), load that file into the shell first:
+
+```bash
+cd /Users/Shared/Projects/trinity
+set -a
+source .env.local
+set +a
+```
+
 See:
 
 - [docs/GOBII_RECURRING_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_RECURRING_WORKFLOW.md)
 - [docs/GOBII_NORMALIZATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/GOBII_NORMALIZATION_CONTRACT.md)
 - [docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md)
+
+Important credential distinction:
+
+- `MISTRAL_API_KEY` is a provider credential for the local `mistral-cli` lane
+- `GOBII_API_KEY` is the Gobii platform API key used by Trinity to call Gobii
+- if you are running self-hosted Gobii, create that Gobii API key inside the Gobii Console API Keys page; do not reuse `MISTRAL_API_KEY` as `GOBII_API_KEY`
 
 ## First Working Baseline
 

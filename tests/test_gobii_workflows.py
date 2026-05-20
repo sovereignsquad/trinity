@@ -16,7 +16,7 @@ from trinity_core.ops.gobii_workflows import (
 from trinity_core.schemas import GobiiAgentCreateRequest, GobiiAgentRecord
 
 
-class _FakeGobiiClient:
+class _FakeGobiiAgentClient:
     def create_agent(self, payload: GobiiAgentCreateRequest) -> GobiiAgentRecord:
         return GobiiAgentRecord(
             id="agent-123",
@@ -85,7 +85,7 @@ def test_register_gobii_workflow_bundle_persists_registration(
         job_path=str(tmp_path / "nightly-shadow-benchmark.json"),
     )
 
-    agent, registration_path = register_gobii_workflow_bundle(bundle, _FakeGobiiClient())
+    agent, registration_path = register_gobii_workflow_bundle(bundle, _FakeGobiiAgentClient())
 
     assert agent.id == "agent-123"
     assert registration_path.exists()

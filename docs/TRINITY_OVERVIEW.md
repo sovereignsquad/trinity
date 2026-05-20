@@ -94,6 +94,7 @@ What is done:
 - adapter-scoped storage exists
 - Reply compatibility is preserved
 - governance artifacts now extend beyond score reporting into acceptance, release, and triage workflows
+- bounded relation-health supervision now exists for Train, provider routes, the Reply cross-repo seam, and Gobii status
 
 What remains:
 
@@ -102,6 +103,7 @@ What remains:
 - keep the Reply policy/train lane explicit until another adapter actually needs a shared promotion contract
 - keep new downstream apps on their own adapter seams rather than stretching Reply semantics
 - surface governance state directly in operator-facing status and review surfaces instead of requiring separate artifact inspection
+- keep the public docs aligned with the actual CLI surface and machine-readable status contracts
 
 ## New App Rule
 

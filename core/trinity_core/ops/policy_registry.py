@@ -1,4 +1,4 @@
-"""Filesystem-backed accepted artifact registry for adapter-scoped policy promotion."""
+"""Filesystem-backed accepted artifact registry for promotion, review, and governance lineage."""
 
 from __future__ import annotations
 
@@ -115,7 +115,7 @@ def resolve_accepted_artifact_registry_paths(
 
 
 class AcceptedArtifactRegistry:
-    """Track immutable accepted artifact versions plus explicit current state."""
+    """Track immutable accepted artifact versions plus explicit current and lineage state."""
 
     def __init__(
         self,

@@ -1,4 +1,4 @@
-"""Curate persisted runtime traces into replayable evaluation datasets."""
+"""Evaluation, replay, and governance artifacts derived from persisted runtime traces."""
 
 from __future__ import annotations
 

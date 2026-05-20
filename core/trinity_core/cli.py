@@ -46,6 +46,7 @@ from trinity_core.ops import (
     GobiiNormalizationError,
     GobiiTaskClient,
     GobiiTaskClientError,
+    TrainClientError,
     accept_reply_behavior_policy,
     accept_spot_review_policy,
     apply_post_training_curation_decision,
@@ -60,6 +61,7 @@ from trinity_core.ops import (
     build_score_governance_status_surface,
     build_score_governance_triage_report,
     build_score_health_report,
+    check_reply_compatibility,
     compare_score_health_reports,
     curate_eval_case_from_trace_payload,
     current_config_route_set,
@@ -109,6 +111,8 @@ from trinity_core.ops import (
     persist_score_health_report,
     persist_score_health_review_decision,
     persist_score_health_trend_report,
+    probe_gobii_seam,
+    probe_train_seam,
     promote_post_training_dataset,
     propose_reply_policy_with_train,
     propose_spot_review_policy_with_train,
@@ -123,6 +127,7 @@ from trinity_core.ops import (
     run_reply_shadow_fixtures,
     schedule_prepared_draft_refresh_jobs,
     shadow_fixture_payload,
+    smoke_provider_routes,
     submit_gobii_tracked_entity_enrichment_bundle,
     summarize_cross_adapter_score_report,
     summarize_eval_replay_report,
@@ -137,7 +142,9 @@ from trinity_core.ops import (
     summarize_score_health_trend_report,
 )
 from trinity_core.ops.cycle_store import RuntimeCycleStore, dataclass_payload
+from trinity_core.ops.relation_health import classify_provider_error_code
 from trinity_core.ops.spot_policy_store import SpotPolicyStore
+from trinity_core.ops.train_client import DEFAULT_TRAIN_API_BASE_URL
 from trinity_core.reply_runtime import training_bundle_type_from_payload
 from trinity_core.runtime import TrinityRuntime
 from trinity_core.schemas import (
@@ -1347,6 +1354,7 @@ def main(argv: list[str] | None = None) -> int:
             "timeout_seconds": config.timeout_seconds,
             "provider_status": "not_configured",
             "provider_error": None,
+            "provider_error_code": None,
             "available_models": [],
             "provider_inventory_supported": False,
             "shared_model_inventory": {
@@ -1391,6 +1399,7 @@ def main(argv: list[str] | None = None) -> int:
             except UnsupportedModelProviderError as exc:
                 payload["provider_status"] = "unsupported"
                 payload["provider_error"] = str(exc)
+                payload["provider_error_code"] = "provider_unsupported"
                 for role_name, route in (
                     ("generator", config.generator),
                     ("refiner", config.refiner),
@@ -1409,6 +1418,7 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:
                 payload["provider_status"] = "offline"
                 payload["provider_error"] = str(exc)
+                payload["provider_error_code"] = classify_provider_error_code(exc)
                 for role_name, route in (
                     ("generator", config.generator),
                     ("refiner", config.refiner),
@@ -1441,6 +1451,41 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                 }
         payload["readiness"] = _build_runtime_readiness_payload(payload)
+        _write_json(payload)
+        return 0
+
+    if command == "train-status":
+        payload = probe_train_seam(
+            default_train_api_base_url=DEFAULT_TRAIN_API_BASE_URL,
+            train_api_base_url=args.train_api_base_url,
+            train_root_dir=args.train_root_dir,
+            transport=str(args.transport or "both"),
+        )
+        _write_json(payload)
+        return 0
+
+    if command == "provider-smoke":
+        role_names = tuple(args.role) if args.role else ("generator", "refiner", "evaluator")
+        payload = smoke_provider_routes(
+            adapter_name=adapter_name,
+            role_names=role_names,
+            inventory_only=bool(args.inventory_only),
+        )
+        _write_json(payload)
+        return 0
+
+    if command == "check-reply-compatibility":
+        payload = check_reply_compatibility(reply_root_dir=args.reply_root_dir)
+        _write_json(payload)
+        return 0
+
+    if command == "gobii-status":
+        payload = probe_gobii_seam(
+            adapter_name=adapter_name,
+            base_url=str(args.gobii_api_base_url).strip(),
+            api_key_env=str(args.api_key_env or "GOBII_API_KEY"),
+            check_live=bool(args.check_live),
+        )
         _write_json(payload)
         return 0
 
@@ -2071,6 +2116,41 @@ def _build_generic_parsers(subparsers: Any) -> None:
     )
     _add_adapter_argument(runtime_status_parser)
 
+    train_status_parser = subparsers.add_parser(
+        "train-status",
+        help="Show bounded Train seam health across API and CLI paths.",
+    )
+    train_status_parser.add_argument("--transport", choices=("api", "cli", "both"), default="both")
+    train_status_parser.add_argument("--train-api-base-url")
+    train_status_parser.add_argument("--train-root-dir")
+
+    provider_smoke_parser = subparsers.add_parser(
+        "provider-smoke",
+        help="Run one bounded provider readiness check for configured adapter roles.",
+    )
+    _add_adapter_argument(provider_smoke_parser)
+    provider_smoke_parser.add_argument(
+        "--role",
+        choices=("generator", "refiner", "evaluator"),
+        action="append",
+    )
+    provider_smoke_parser.add_argument("--inventory-only", action="store_true")
+
+    reply_compat_parser = subparsers.add_parser(
+        "check-reply-compatibility",
+        help="Run one bounded cross-repo compatibility check for the Reply seam.",
+    )
+    reply_compat_parser.add_argument("--reply-root-dir")
+
+    gobii_status_parser = subparsers.add_parser(
+        "gobii-status",
+        help="Show bounded Gobii seam status and optional live connectivity checks.",
+    )
+    _add_adapter_argument(gobii_status_parser)
+    gobii_status_parser.add_argument("--gobii-api-base-url", default="https://gobii.ai")
+    gobii_status_parser.add_argument("--api-key-env", default="GOBII_API_KEY")
+    gobii_status_parser.add_argument("--check-live", action="store_true")
+
     write_config_parser = subparsers.add_parser(
         "write-config",
         help="Persist a new model routing configuration for the selected adapter.",
@@ -2465,6 +2545,7 @@ def _resolve_cli_role_model_id(
 def _build_runtime_readiness_payload(payload: dict[str, Any]) -> dict[str, Any]:
     llm_enabled = bool(payload.get("llm_enabled"))
     provider_status = str(payload.get("provider_status") or "not_configured").strip().lower()
+    provider_error_code = str(payload.get("provider_error_code") or "").strip().lower()
     roles = payload.get("roles") if isinstance(payload.get("roles"), dict) else {}
     role_readiness: dict[str, bool] = {}
     missing_models: list[str] = []
@@ -2494,6 +2575,8 @@ def _build_runtime_readiness_payload(payload: dict[str, Any]) -> dict[str, Any]:
     elif provider_status == "offline":
         state = "offline"
         reasons.append("provider_offline")
+        if provider_error_code:
+            reasons.append(f"provider_error:{provider_error_code}")
     elif missing_models:
         state = "degraded"
         reasons.extend([f"missing_model:{item}" for item in missing_models])
@@ -2530,6 +2613,8 @@ def _structured_cli_error_payload(
     error_type = type(exc).__name__
     if isinstance(exc, UnsupportedModelProviderError):
         code = "unsupported_model_provider"
+    elif isinstance(exc, TrainClientError):
+        code = f"train_{exc.code}"
     elif isinstance(exc, ValueError):
         code = "invalid_request"
     elif isinstance(exc, RuntimeError):
