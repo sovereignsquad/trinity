@@ -41,8 +41,11 @@ PYTHONPATH=core uv run python -m trinity_core.cli --help
 - `schedule-prepared-draft-refresh --adapter <adapter> --company-id <company>`
 - `export-trace --adapter <adapter> --cycle-id <uuid>`
 - `show-config --adapter <adapter> [--include-path]`
+- `show-foundation-policy [--include-path]`
 - `runtime-status --adapter <adapter>`
+- `foundation-check --adapter <adapter> [preflight options]`
 - `write-config --adapter <adapter> [provider options]`
+- `write-foundation-policy [policy options]`
 
 ### Relation Health
 
@@ -75,6 +78,10 @@ PYTHONPATH=core uv run python -m trinity_core.cli --help
 - `policy-promote --adapter <adapter> --artifact-key <key> --version <version> --source-project <project>`
 - `policy-rollback --adapter <adapter> --artifact-key <key>`
 - `policy-status --adapter <adapter> --artifact-key <key>`
+
+Current release-gate rule:
+
+- `policy-promote` now runs `foundation-check` by default and requires an explicit bypass note to skip it
 
 ### Evaluation And Post-Training Datasets
 
@@ -148,13 +155,14 @@ PYTHONPATH=core uv run python -m trinity_core.cli --help
 - `provider_error`
 - `provider_error_code`
 - `provider_inventory_supported`
+- `foundation_policy`
 - `shared_model_inventory`
 - `readiness`
 - `roles`
 
 Current `status_schema_version`:
 
-- `4`
+- `5`
 
 Current readiness states include:
 
@@ -195,13 +203,17 @@ Current contract versions:
 - `trinity_provider_smoke.v1`
 - `trinity_reply_compat.v1`
 - `trinity_gobii_status.v1`
+- `trinity_foundation_policy.v1`
+- `trinity_foundation_check.v1`
 
 ## Examples
 
 ```bash
 cd /Users/Shared/Projects/trinity
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli show-foundation-policy --include-path
 PYTHONPATH=core uv run python -m trinity_core.cli train-status --transport both
+PYTHONPATH=core uv run python -m trinity_core.cli foundation-check --adapter reply --check-gobii-live
 PYTHONPATH=core uv run python -m trinity_core.cli provider-smoke --adapter reply --role generator
 PYTHONPATH=core uv run python -m trinity_core.cli check-reply-compatibility --reply-root-dir /Users/Shared/Projects/reply
 PYTHONPATH=core uv run python -m trinity_core.cli gobii-status --adapter reply --check-live
@@ -212,6 +224,8 @@ PYTHONPATH=core uv run python -m trinity_core.cli reason-spot --adapter spot --i
 
 - `reply` is still the only full downstream workflow
 - `spot` remains bounded
+- Train policy now defaults to `cli`
+- Reply's preferred live provider policy is `mistral-cli`
 - provider comparison and eval replay remain Reply-centric
 - `mistral-cli` remains the bounded `vibe` path
 - Gobii remains optional and should not be treated as a base runtime dependency

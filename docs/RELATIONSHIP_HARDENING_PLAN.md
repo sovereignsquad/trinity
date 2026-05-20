@@ -6,7 +6,7 @@ This document turns the audit in [docs/RELATIONSHIP_HEALTH.md](/Users/Shared/Pro
 
 Current planning snapshot:
 
-- `2026-05-19`
+- `2026-05-20`
 
 GitHub board:
 
@@ -155,16 +155,19 @@ Expected outcome:
 
 ## Board Status Snapshot
 
-As placed on project `#6` during this planning tranche:
+Current project `#6` status after implementation and reconciliation:
 
-- `#79` `Todo (NEXT)`
-- `#80` `Todo (NEXT)`
-- `#81` `Backlog (SOONER)`
-- `#82` `Backlog (SOONER)`
-- `#83` `Backlog (SOONER)`
-- `#84` `Roadmap (LATER)`
+- `#32` `Done`
+- `#33` `Done`
 - `#54` `Backlog (SOONER)`
 - `#55` `Roadmap (LATER)`
+- `#65` `Done`
+- `#79` `Done`
+- `#80` `Done`
+- `#81` `Done`
+- `#82` `Done`
+- `#83` `Done`
+- `#84` `Done`
 
 ## Delivery Guidance
 

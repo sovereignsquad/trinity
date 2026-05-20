@@ -18,12 +18,14 @@ This snapshot was refreshed with:
 
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot`
+- `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli show-foundation-policy --include-path`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli train-status --transport both`
+- `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli foundation-check --adapter reply`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli provider-smoke --adapter reply --role generator`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli check-reply-compatibility --reply-root-dir /Users/Shared/Projects/reply`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli gobii-status --adapter reply --check-live`
-- `PYTHONPATH=core uv run pytest tests/test_train_client.py tests/test_relation_health.py tests/test_adapter_runtime.py tests/test_public_contracts.py -q`
-- `PYTHONPATH=core uv run ruff check core/trinity_core/ops/relation_health.py core/trinity_core/ops/train_client.py core/trinity_core/ops/__init__.py core/trinity_core/cli.py tests/test_relation_health.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py`
+- `PYTHONPATH=core uv run pytest tests/test_relation_health.py tests/test_foundation_policy.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py -q`
+- `PYTHONPATH=core uv run ruff check core/trinity_core/ops/foundation_policy.py core/trinity_core/ops/relation_health.py core/trinity_core/ops/train_client.py core/trinity_core/ops/__init__.py core/trinity_core/cli.py tests/test_relation_health.py tests/test_foundation_policy.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py`
 
 ## Relation Inventory
 
@@ -47,6 +49,7 @@ This snapshot was refreshed with:
 - `runtime-status --adapter reply` now reports `provider=mistral-cli`
 - `readiness.ready=true`
 - `readiness.can_suggest=true`
+- `foundation-check --adapter reply --reply-root-dir /Users/Shared/Projects/reply` returned `ready=true`
 - `provider-smoke --adapter reply --role generator` passed live
 - `check-reply-compatibility` returned `ready=true`
 
@@ -64,6 +67,7 @@ Primary caution:
 - `runtime-status --adapter spot` reports `provider=deterministic`
 - `llm_enabled=false`
 - `readiness.state=disabled`
+- `foundation-check --adapter spot` returned `ready=true`
 
 Assessment:
 
@@ -81,6 +85,7 @@ Assessment:
 
 - the Train seam is implemented and still usable locally
 - the reliable path right now is CLI, not API
+- the machine-local foundation policy now makes that CLI-first baseline explicit
 
 Primary caution:
 
@@ -126,6 +131,7 @@ Primary caution:
 ### Shared Model Inventory
 
 - `runtime-status` now reports `shared_model_inventory.enabled=true`
+- `runtime-status` now also reports `foundation_policy.provider_alignment`
 - `entry_count=7`
 - generator inventory mapping resolves to a real path under `/Users/Shared/Models`
 

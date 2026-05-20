@@ -385,7 +385,7 @@ def test_runtime_status_reports_unsupported_provider(
     assert payload["provider"] == "mlx"
     assert payload["provider_status"] == "unsupported"
     assert payload["contract_version"] == "trinity_cli.v1"
-    assert payload["status_schema_version"] == 4
+    assert payload["status_schema_version"] == 5
     assert payload["readiness"]["ready"] is False
     assert payload["readiness"]["state"] == "unsupported"
     assert "provider_unsupported" in payload["readiness"]["reasons"]
@@ -507,7 +507,7 @@ def test_runtime_status_reports_shared_model_inventory_match(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert status_exit == 0
-    assert payload["status_schema_version"] == 4
+    assert payload["status_schema_version"] == 5
     assert payload["shared_model_inventory"]["enabled"] is True
     assert payload["shared_model_inventory"]["entry_count"] == 1
     assert payload["roles"]["generator"]["inventory_found"] is True
@@ -660,7 +660,7 @@ def test_runtime_status_reports_missing_shared_model_asset_by_model_id(
 
     payload = json.loads(capsys.readouterr().out)
     assert status_exit == 0
-    assert payload["status_schema_version"] == 4
+    assert payload["status_schema_version"] == 5
     assert payload["roles"]["generator"]["inventory_found"] is True
     assert payload["roles"]["generator"]["inventory_model_id"] == "granite-missing"
     assert payload["roles"]["generator"]["inventory_status"] == "missing"
@@ -715,7 +715,7 @@ def test_runtime_status_reports_provider_managed_inventory_asset(
 
     payload = json.loads(capsys.readouterr().out)
     assert status_exit == 0
-    assert payload["status_schema_version"] == 4
+    assert payload["status_schema_version"] == 5
     assert payload["roles"]["generator"]["inventory_found"] is True
     assert payload["roles"]["generator"]["inventory_model_id"] == "ollama-managed-granite"
     assert payload["roles"]["generator"]["inventory_status"] == "provider_managed"

@@ -41,6 +41,7 @@ from trinity_core.model_config import (
 )
 from trinity_core.ops import (
     AcceptedArtifactRegistry,
+    AdapterFoundationPolicy,
     ControlPlaneStore,
     GobiiAgentClient,
     GobiiNormalizationError,
@@ -52,6 +53,7 @@ from trinity_core.ops import (
     apply_post_training_curation_decision,
     build_cross_adapter_score_report,
     build_eval_dataset,
+    build_foundation_provider_alignment,
     build_gobii_tracked_entity_enrichment_bundle,
     build_gobii_workflow_bundle,
     build_post_training_dataset,
@@ -123,6 +125,7 @@ from trinity_core.ops import (
     review_score_health_report,
     review_spot_review_policy,
     run_control_plane_job,
+    run_foundation_check,
     run_reply_provider_comparison_from_fixture_dir,
     run_reply_shadow_fixtures,
     schedule_prepared_draft_refresh_jobs,
@@ -142,6 +145,12 @@ from trinity_core.ops import (
     summarize_score_health_trend_report,
 )
 from trinity_core.ops.cycle_store import RuntimeCycleStore, dataclass_payload
+from trinity_core.ops.foundation_policy import (
+    TrinityFoundationPolicy,
+    foundation_policy_path,
+    load_foundation_policy,
+    save_foundation_policy,
+)
 from trinity_core.ops.relation_health import classify_provider_error_code
 from trinity_core.ops.spot_policy_store import SpotPolicyStore
 from trinity_core.ops.train_client import DEFAULT_TRAIN_API_BASE_URL
@@ -181,7 +190,7 @@ COMMAND_ALIASES = {
 }
 
 CLI_CONTRACT_VERSION = "trinity_cli.v1"
-RUNTIME_STATUS_SCHEMA_VERSION = 4
+RUNTIME_STATUS_SCHEMA_VERSION = 5
 CLI_ERROR_SCHEMA_VERSION = 1
 
 
@@ -1125,6 +1134,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.ready_for_acceptance else 2
 
     if command == "policy-promote":
+        foundation_check: dict[str, Any] | None = None
+        if not args.allow_foundation_bypass:
+            foundation_check = run_foundation_check(
+                adapter_name=adapter_name,
+                default_train_api_base_url=DEFAULT_TRAIN_API_BASE_URL,
+            )
+            if not foundation_check["ready"]:
+                _write_json(
+                    {
+                        "promoted": False,
+                        "reason": "Rejected: foundation check failed before promotion.",
+                        "foundation_check": foundation_check,
+                    }
+                )
+                return 2
+        elif not str(args.foundation_bypass_note or "").strip():
+            raise ValueError(
+                "--foundation-bypass-note is required when bypassing foundation checks."
+            )
         accepted_at = _parse_datetime(args.accepted_at) if args.accepted_at else datetime.now(UTC)
         artifact = AcceptedArtifactVersion(
             artifact_key=str(args.artifact_key),
@@ -1147,7 +1175,12 @@ def main(argv: list[str] | None = None) -> int:
             SpotPolicyStore().accept(policy, artifact=artifact)
         else:
             result = registry.promote(artifact, reason=args.reason, promoted_at=accepted_at)
-        _write_json(dataclass_payload(result))
+        payload = dataclass_payload(result)
+        if foundation_check is not None:
+            payload["foundation_check"] = foundation_check
+        if args.allow_foundation_bypass:
+            payload["foundation_bypass_note"] = str(args.foundation_bypass_note).strip()
+        _write_json(payload)
         return 0
 
     if command == "policy-rollback":
@@ -1187,7 +1220,82 @@ def main(argv: list[str] | None = None) -> int:
         _write_json(payload)
         return 0
 
+    if command == "show-foundation-policy":
+        payload = dataclass_payload(load_foundation_policy())
+        if args.include_path:
+            payload["policy_path"] = str(foundation_policy_path())
+        _write_json(payload)
+        return 0
+
+    if command == "write-foundation-policy":
+        current_policy = load_foundation_policy()
+        updated_train = current_policy.train
+        if args.train_default_transport:
+            updated_train = type(current_policy.train)(
+                default_transport=str(args.train_default_transport).strip().lower()
+            )
+        updated_reply = current_policy.reply
+        updated_spot = current_policy.spot
+        if args.adapter:
+            current_adapter_policy = (
+                current_policy.reply
+                if require_supported_adapter(args.adapter) == REPLY_ADAPTER_NAME
+                else current_policy.spot
+            )
+            updated_adapter_policy = AdapterFoundationPolicy(
+                supported_providers=tuple(
+                    str(item).strip().lower()
+                    for item in (
+                        args.supported_provider or current_adapter_policy.supported_providers
+                    )
+                    if str(item).strip()
+                ),
+                preferred_live_provider=(
+                    str(
+                        args.preferred_live_provider
+                        or current_adapter_policy.preferred_live_provider
+                        or ""
+                    )
+                    .strip()
+                    .lower()
+                    or None
+                ),
+                release_gate_roles=tuple(
+                    str(item).strip().lower()
+                    for item in (
+                        args.release_gate_role or current_adapter_policy.release_gate_roles
+                    )
+                    if str(item).strip()
+                ),
+            )
+            if require_supported_adapter(args.adapter) == REPLY_ADAPTER_NAME:
+                updated_reply = updated_adapter_policy
+            else:
+                updated_spot = updated_adapter_policy
+        updated_optional = type(current_policy.optional_seams)(
+            gobii_required_for_release=(
+                True
+                if args.gobii_required_for_release
+                else False
+                if args.gobii_optional_for_release
+                else current_policy.optional_seams.gobii_required_for_release
+            )
+        )
+        updated_policy = TrinityFoundationPolicy(
+            contract_version=current_policy.contract_version,
+            train=updated_train,
+            reply=updated_reply,
+            spot=updated_spot,
+            optional_seams=updated_optional,
+        )
+        path = save_foundation_policy(updated_policy)
+        payload = dataclass_payload(updated_policy)
+        payload["policy_path"] = str(path)
+        _write_json(payload)
+        return 0
+
     if command == "train-propose-policy":
+        train_transport = str(args.transport or load_foundation_policy().train.default_transport)
         bundle_files = list(args.bundle_file or [])
         if args.cycle_id and not args.bundle_type:
             raise ValueError("--bundle-type is required when using --cycle-id.")
@@ -1231,7 +1339,7 @@ def main(argv: list[str] | None = None) -> int:
             train_result = propose_reply_policy_with_train(
                 learner_kind=str(args.learner_kind),
                 bundle_files=bundle_files,
-                transport=str(args.transport),
+                transport=train_transport,
                 train_api_base_url=args.train_api_base_url,
                 train_root_dir=args.train_root_dir,
                 proposal_output_path=proposal_output_path,
@@ -1241,7 +1349,7 @@ def main(argv: list[str] | None = None) -> int:
             train_result = propose_spot_review_policy_with_train(
                 learner_kind=str(args.learner_kind),
                 bundle_files=bundle_files,
-                transport=str(args.transport),
+                transport=train_transport,
                 train_api_base_url=args.train_api_base_url,
                 train_root_dir=args.train_root_dir,
                 proposal_output_path=proposal_output_path,
@@ -1252,7 +1360,7 @@ def main(argv: list[str] | None = None) -> int:
             raise AssertionError(f"Unhandled adapter: {adapter_name}")
         payload = {
             "adapter": adapter_name,
-            "transport": str(args.transport),
+            "transport": train_transport,
             "learner_kind": str(args.learner_kind),
             "bundle_files": bundle_files,
             "train_result": train_result,
@@ -1336,6 +1444,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "runtime-status":
         config = load_model_config_for_adapter(adapter_name)
+        foundation_policy = load_foundation_policy()
         shared_inventory_payload = _build_shared_model_inventory_payload()
         payload = {
             "contract_version": CLI_CONTRACT_VERSION,
@@ -1357,6 +1466,16 @@ def main(argv: list[str] | None = None) -> int:
             "provider_error_code": None,
             "available_models": [],
             "provider_inventory_supported": False,
+            "foundation_policy": {
+                "policy_path": str(foundation_policy_path()),
+                "train_default_transport": foundation_policy.train.default_transport,
+                "provider_alignment": build_foundation_provider_alignment(
+                    adapter_name=adapter_name,
+                    provider=config.provider,
+                    llm_enabled=config.llm_enabled,
+                    policy=foundation_policy,
+                ),
+            },
             "shared_model_inventory": {
                 key: value
                 for key, value in shared_inventory_payload.items()
@@ -1455,14 +1574,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if command == "train-status":
+        foundation_policy = load_foundation_policy()
         payload = probe_train_seam(
             default_train_api_base_url=DEFAULT_TRAIN_API_BASE_URL,
             train_api_base_url=args.train_api_base_url,
             train_root_dir=args.train_root_dir,
             transport=str(args.transport or "both"),
+            preferred_transport=foundation_policy.train.default_transport,
         )
         _write_json(payload)
         return 0
+
+    if command == "foundation-check":
+        payload = run_foundation_check(
+            adapter_name=adapter_name,
+            default_train_api_base_url=DEFAULT_TRAIN_API_BASE_URL,
+            train_api_base_url=args.train_api_base_url,
+            train_root_dir=args.train_root_dir,
+            train_transport=args.transport,
+            reply_root_dir=args.reply_root_dir,
+            gobii_api_base_url=str(args.gobii_api_base_url).strip(),
+            gobii_api_key_env=str(args.api_key_env or "GOBII_API_KEY"),
+            check_gobii_live=bool(args.check_gobii_live),
+        )
+        _write_json(payload)
+        return 0 if payload["ready"] else 2
 
     if command == "provider-smoke":
         role_names = tuple(args.role) if args.role else ("generator", "refiner", "evaluator")
@@ -1491,6 +1627,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "write-config":
         current = load_model_config_for_adapter(adapter_name)
+        foundation_policy = load_foundation_policy()
         updated_provider = str(args.provider or current.provider)
         updated = TrinityModelConfig(
             provider=updated_provider,
@@ -1546,6 +1683,15 @@ def main(argv: list[str] | None = None) -> int:
         path = save_model_config_for_adapter(adapter_name, updated)
         payload = dataclass_payload(updated)
         payload["config_path"] = str(path)
+        payload["foundation_policy"] = {
+            "policy_path": str(foundation_policy_path()),
+            "provider_alignment": build_foundation_provider_alignment(
+                adapter_name=adapter_name,
+                provider=updated.provider,
+                llm_enabled=updated.llm_enabled,
+                policy=foundation_policy,
+            ),
+        }
         _write_json(payload)
         return 0
 
@@ -2011,7 +2157,7 @@ def _build_generic_parsers(subparsers: Any) -> None:
     train_parser.add_argument("--bundle-file", action="append")
     train_parser.add_argument("--bundle-type")
     train_parser.add_argument("--learner-kind", required=True)
-    train_parser.add_argument("--transport", choices=("api", "cli"), default="api")
+    train_parser.add_argument("--transport", choices=("api", "cli"))
     train_parser.add_argument("--train-api-base-url")
     train_parser.add_argument("--train-root-dir")
     train_parser.add_argument("--proposal-output-path")
@@ -2086,6 +2232,8 @@ def _build_generic_parsers(subparsers: Any) -> None:
     promote_parser.add_argument("--accepted-at")
     promote_parser.add_argument("--policy-file")
     promote_parser.add_argument("--reason")
+    promote_parser.add_argument("--allow-foundation-bypass", action="store_true")
+    promote_parser.add_argument("--foundation-bypass-note")
 
     rollback_parser = subparsers.add_parser(
         "policy-rollback",
@@ -2110,6 +2258,31 @@ def _build_generic_parsers(subparsers: Any) -> None:
     _add_adapter_argument(show_config_parser)
     show_config_parser.add_argument("--include-path", action="store_true")
 
+    show_foundation_policy_parser = subparsers.add_parser(
+        "show-foundation-policy",
+        help="Show the machine-local foundation policy used for release gates and seam policy.",
+    )
+    show_foundation_policy_parser.add_argument("--include-path", action="store_true")
+
+    write_foundation_policy_parser = subparsers.add_parser(
+        "write-foundation-policy",
+        help=(
+            "Persist machine-local foundation policy defaults "
+            "for Train and adapter provider support."
+        ),
+    )
+    write_foundation_policy_parser.add_argument("--train-default-transport", choices=("api", "cli"))
+    write_foundation_policy_parser.add_argument("--adapter")
+    write_foundation_policy_parser.add_argument("--supported-provider", action="append")
+    write_foundation_policy_parser.add_argument("--preferred-live-provider")
+    write_foundation_policy_parser.add_argument(
+        "--release-gate-role",
+        choices=("generator", "refiner", "evaluator"),
+        action="append",
+    )
+    write_foundation_policy_parser.add_argument("--gobii-required-for-release", action="store_true")
+    write_foundation_policy_parser.add_argument("--gobii-optional-for-release", action="store_true")
+
     runtime_status_parser = subparsers.add_parser(
         "runtime-status",
         help="Show runtime model availability and adapter wiring status.",
@@ -2123,6 +2296,19 @@ def _build_generic_parsers(subparsers: Any) -> None:
     train_status_parser.add_argument("--transport", choices=("api", "cli", "both"), default="both")
     train_status_parser.add_argument("--train-api-base-url")
     train_status_parser.add_argument("--train-root-dir")
+
+    foundation_check_parser = subparsers.add_parser(
+        "foundation-check",
+        help="Run the standard Train, provider, Reply, and optional Gobii release preflight.",
+    )
+    _add_adapter_argument(foundation_check_parser)
+    foundation_check_parser.add_argument("--transport", choices=("api", "cli", "both"))
+    foundation_check_parser.add_argument("--train-api-base-url")
+    foundation_check_parser.add_argument("--train-root-dir")
+    foundation_check_parser.add_argument("--reply-root-dir")
+    foundation_check_parser.add_argument("--gobii-api-base-url", default="https://gobii.ai")
+    foundation_check_parser.add_argument("--api-key-env", default="GOBII_API_KEY")
+    foundation_check_parser.add_argument("--check-gobii-live", action="store_true")
 
     provider_smoke_parser = subparsers.add_parser(
         "provider-smoke",
@@ -2208,7 +2394,7 @@ def _build_reply_compat_parsers(subparsers: Any) -> None:
     train_parser.add_argument("--bundle-file", action="append")
     train_parser.add_argument("--bundle-type")
     train_parser.add_argument("--learner-kind", required=True)
-    train_parser.add_argument("--transport", choices=("api", "cli"), default="api")
+    train_parser.add_argument("--transport", choices=("api", "cli"))
     train_parser.add_argument("--train-api-base-url")
     train_parser.add_argument("--train-root-dir")
     train_parser.add_argument("--proposal-output-path")
@@ -2260,6 +2446,8 @@ def _build_reply_compat_parsers(subparsers: Any) -> None:
     promote_parser.add_argument("--version", required=True)
     promote_parser.add_argument("--source-project", required=True)
     promote_parser.add_argument("--accepted-at")
+    promote_parser.add_argument("--allow-foundation-bypass", action="store_true")
+    promote_parser.add_argument("--foundation-bypass-note")
     promote_parser.add_argument("--reason")
 
     rollback_parser = subparsers.add_parser("reply-policy-rollback")

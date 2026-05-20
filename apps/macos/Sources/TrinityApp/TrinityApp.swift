@@ -28,6 +28,7 @@ private enum TrinityPage: String, CaseIterable, Identifiable {
     case candidates
     case feedback
     case governance
+    case admin
 
     var id: String { rawValue }
 
@@ -38,6 +39,7 @@ private enum TrinityPage: String, CaseIterable, Identifiable {
         case .candidates: "Candidates"
         case .feedback: "Feedback"
         case .governance: "Governance"
+        case .admin: "Admin"
         }
     }
 
@@ -48,6 +50,7 @@ private enum TrinityPage: String, CaseIterable, Identifiable {
         case .candidates: "sparkles.rectangle.stack"
         case .feedback: "checkmark.message"
         case .governance: "checklist"
+        case .admin: "slider.horizontal.3"
         }
     }
 }
@@ -67,6 +70,11 @@ struct TrinityApp: App {
                 .preferredColorScheme(themeMode.preferredColorScheme)
         }
         .defaultSize(width: 980, height: 680)
+
+        Settings {
+            TrinityAdminSettingsView()
+                .preferredColorScheme(themeMode.preferredColorScheme)
+        }
         .commands {
             CommandMenu("Theme") {
                 ForEach(TrinityThemeMode.allCases, id: \.rawValue) { mode in
@@ -204,6 +212,8 @@ struct ContentView: View {
                     }
                 }
             }
+        case .admin:
+            TrinityAdminSettingsView(showsOwnScrollView: false)
         }
     }
 

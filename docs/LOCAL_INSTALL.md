@@ -98,6 +98,7 @@ If you want a broader consumer-compatibility check without running the full suit
 ```bash
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot
+PYTHONPATH=core uv run python -m trinity_core.cli foundation-check --adapter spot
 ```
 
 ## 5. Build The macOS Shell
@@ -111,6 +112,12 @@ cd ../..
 ```
 
 The current app package is defined in [apps/macos/Package.swift](/Users/Shared/Projects/trinity/apps/macos/Package.swift).
+
+The native shell now includes a Settings scene plus an in-app Admin page for machine-local runtime administration:
+
+- foundation policy editing
+- Reply runtime model config editing
+- Spot runtime model config editing
 
 ## 6. Optional Provider Setup
 
@@ -184,10 +191,35 @@ Write or update config:
 PYTHONPATH=core uv run python -m trinity_core.cli write-config --adapter reply
 ```
 
+Inspect the machine-local foundation policy:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli show-foundation-policy --include-path
+```
+
+The current hardening baseline is:
+
+- Train default transport: `cli`
+- Reply preferred live provider: `mistral-cli`
+- Spot supported provider: `deterministic`
+- Gobii release checks remain optional by default
+
+If you need to update that machine-local baseline:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli write-foundation-policy
+```
+
 Check the resolved runtime status:
 
 ```bash
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+```
+
+Run the bundled preflight before promotions or operator-facing release work:
+
+```bash
+PYTHONPATH=core uv run python -m trinity_core.cli foundation-check --adapter reply
 ```
 
 Inspect the governance-enabled CLI surface:
@@ -234,6 +266,7 @@ uv run ruff check .
 uv run pytest
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot
+PYTHONPATH=core uv run python -m trinity_core.cli foundation-check --adapter spot
 ```
 
 If you also want the native shell baseline:

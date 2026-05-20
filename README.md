@@ -117,8 +117,11 @@ Preferred generic commands:
 - `export-trace --adapter <adapter>`
 - `export-training-bundle --adapter <adapter>`
 - `runtime-status --adapter <adapter>`
+- `show-foundation-policy`
+- `foundation-check --adapter <adapter>`
 - `show-config --adapter <adapter>`
 - `write-config --adapter <adapter>`
+- `write-foundation-policy`
 - `train-status`
 - `provider-smoke`
 - `check-reply-compatibility`
@@ -188,6 +191,7 @@ Examples:
 ```bash
 cd /Users/Shared/Projects/trinity
 PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply
+PYTHONPATH=core uv run python -m trinity_core.cli foundation-check --adapter reply
 PYTHONPATH=core uv run python -m trinity_core.cli reason-spot --adapter spot --input-file /tmp/spot-request.json
 ```
 
@@ -196,8 +200,21 @@ Policy acceptance note:
 - serious policy review and acceptance flows now default to holdout replay
 - no-holdout acceptance is restricted to explicit local/dev override with `--allow-no-holdout`
 - score-governance can now block acceptance and release deterministically unless an operator records an explicit override
+- policy promotion now also runs a bundled foundation preflight unless an operator records an explicit bypass note
 - exported training bundles now preserve negative samples and policy-resolution context so `{train}` can learn from bounded runtime artifacts without silently reinterpreting the whole trace
 - the current runtime, policy, Train handoff, and shadow-fixture lanes are intentionally centered on the `{reply} <-> {trinity} <-> {train}` workflow
+
+Current machine-local hardening baseline:
+
+- Train default transport is `cli`
+- Reply preferred live provider is `mistral-cli`
+- Spot supported provider is `deterministic`
+- Gobii remains optional for the base release gate unless you explicitly change the foundation policy
+
+Native admin settings:
+
+- the macOS app now includes a native Admin surface and Settings scene for editing the machine-local foundation policy plus active Reply/Spot runtime model config
+- that surface writes the same machine-local JSON used by the CLI rather than introducing a second config path
 
 ## Runtime Storage
 

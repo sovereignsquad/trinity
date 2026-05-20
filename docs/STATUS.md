@@ -72,9 +72,12 @@ Authoritative command reference:
 The relation-hardening tranche is implemented in code:
 
 - `train-status`
+- `foundation-check`
 - `provider-smoke`
 - `check-reply-compatibility`
 - `gobii-status`
+- `show-foundation-policy`
+- `write-foundation-policy`
 
 The supporting implementation lives in:
 
@@ -108,6 +111,7 @@ The supporting implementation lives in:
 
 - macOS native shell remains present under `apps/macos`
 - the shell is positioned as a native operator surface, not a web wrapper
+- the shell now includes a native Admin page and Settings scene for machine-local foundation policy and active adapter model-config editing
 
 ## Current Verified Local State
 
@@ -118,6 +122,7 @@ These checks were rerun on `2026-05-20`.
 - `runtime-status --adapter reply` now reports `provider=mistral-cli`
 - `readiness.ready=true`
 - `readiness.can_suggest=true`
+- `foundation-check --adapter reply --reply-root-dir /Users/Shared/Projects/reply` now reports `ready=true`
 - current config path is the legacy-compatible Reply root at `~/Library/Application Support/Trinity/reply_runtime/model_config.json`
 - `provider-smoke --adapter reply --role generator` passed live
 
@@ -132,6 +137,7 @@ Interpretation:
 - `llm_enabled=false`
 - `readiness.state=disabled`
 - `readiness.can_suggest=false`
+- `foundation-check --adapter spot` now reports `ready=true`
 
 Interpretation:
 
@@ -148,6 +154,7 @@ Interpretation:
 
 - the Train seam is usable locally through CLI
 - the default local Train API path at `http://127.0.0.1:8000` is still down
+- the explicit machine-local foundation policy now treats `cli` as the default transport
 
 ### Reply Cross-Repo Compatibility
 
@@ -172,14 +179,16 @@ Most relevant recent verification:
 
 - `uv run pytest`
 - `uv run ruff check .`
-- `PYTHONPATH=core uv run pytest tests/test_train_client.py tests/test_relation_health.py tests/test_adapter_runtime.py tests/test_public_contracts.py -q`
-- `PYTHONPATH=core uv run ruff check core/trinity_core/ops/relation_health.py core/trinity_core/ops/train_client.py core/trinity_core/ops/__init__.py core/trinity_core/cli.py tests/test_relation_health.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py`
+- `PYTHONPATH=core uv run pytest tests/test_relation_health.py tests/test_foundation_policy.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py -q`
+- `PYTHONPATH=core uv run ruff check core/trinity_core/ops/foundation_policy.py core/trinity_core/ops/relation_health.py core/trinity_core/ops/train_client.py core/trinity_core/ops/__init__.py core/trinity_core/cli.py tests/test_relation_health.py tests/test_foundation_policy.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter spot`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli train-status --transport both`
+- `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli foundation-check --adapter reply`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli provider-smoke --adapter reply --role generator`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli check-reply-compatibility --reply-root-dir /Users/Shared/Projects/reply`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli gobii-status --adapter reply --check-live`
+- `cd apps/macos && swift build`
 
 ## Current Constraints
 
@@ -194,7 +203,7 @@ Most relevant recent verification:
 ## Immediate Priorities
 
 1. Keep the generic runtime stable while continuing to prevent Reply semantics from leaking into core workflow code.
-2. Preserve the relation-health commands as the main operator seam for Train, provider, Reply compatibility, and Gobii supervision.
+2. Preserve the foundation policy and bundled preflight as the main operator seam for Train, provider, Reply compatibility, and Gobii supervision.
 3. Keep Spot explicitly documented as bounded until its product-side workflow actually expands.
-4. Decide whether Train API should be restored locally or whether CLI should remain the normal recommended transport.
+4. Decide whether Train API should be restored locally or whether CLI should remain the normal enforced transport.
 5. Configure Gobii only when the bounded browser-agent lanes are actually needed.

@@ -13,7 +13,7 @@ from trinity_core.ops.relation_health import request_train_json
 from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 
 DEFAULT_TRAIN_API_BASE_URL = "http://127.0.0.1:8000"
-DEFAULT_TRAIN_TRANSPORT = "api"
+DEFAULT_TRAIN_TRANSPORT = "cli"
 
 
 def propose_reply_policy_with_train(

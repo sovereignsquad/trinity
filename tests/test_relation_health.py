@@ -70,7 +70,8 @@ def test_probe_train_seam_reports_api_and_cli_health(
     )
 
     assert payload["ready"] is True
-    assert payload["recommended_transport"] == "api"
+    assert payload["preferred_transport"] == "cli"
+    assert payload["recommended_transport"] == "cli"
     assert payload["api"]["state"] == "online"
     assert payload["cli"]["state"] == "online"
 

@@ -15,6 +15,12 @@ from uuid import UUID
 from trinity_core.adapters import require_supported_adapter
 from trinity_core.adapters.model.base import UnsupportedModelProviderError, build_model_provider
 from trinity_core.model_config import load_model_config_for_adapter
+from trinity_core.ops.foundation_policy import (
+    TrinityFoundationPolicy,
+    build_foundation_provider_alignment,
+    foundation_policy_path,
+    load_foundation_policy,
+)
 from trinity_core.ops.gobii_tasks import GobiiTaskClient, GobiiTaskClientError
 
 TRAIN_STATUS_CONTRACT_VERSION = "trinity_train_status.v1"
@@ -60,6 +66,7 @@ def probe_train_seam(
     train_root_dir: str | Path | None = None,
     transport: str = "both",
     timeout_seconds: float = 10.0,
+    preferred_transport: str = "cli",
 ) -> dict[str, Any]:
     normalized = str(transport or "both").strip().lower()
     if normalized not in {"api", "cli", "both"}:
@@ -76,6 +83,7 @@ def probe_train_seam(
         "transport": normalized,
         "train_api_base_url": base_url,
         "train_root_dir": str(root_dir),
+        "preferred_transport": preferred_transport,
         "api": _probe_train_api(base_url, timeout_seconds=timeout_seconds)
         if normalized in {"api", "both"}
         else {"enabled": False, "ready": False, "state": "skipped"},
@@ -86,7 +94,13 @@ def probe_train_seam(
     api_ready = bool(payload["api"].get("ready"))
     cli_ready = bool(payload["cli"].get("ready"))
     payload["ready"] = api_ready or cli_ready
-    payload["recommended_transport"] = "api" if api_ready else "cli" if cli_ready else None
+    normalized_preferred = str(preferred_transport or "cli").strip().lower()
+    if normalized_preferred == "api" and api_ready:
+        payload["recommended_transport"] = "api"
+    elif normalized_preferred == "cli" and cli_ready:
+        payload["recommended_transport"] = "cli"
+    else:
+        payload["recommended_transport"] = "api" if api_ready else "cli" if cli_ready else None
     return payload
 
 
@@ -269,6 +283,116 @@ def probe_gobii_seam(
         payload["reason"] = classify_gobii_error_code(exc)
         payload["error"] = str(exc)
         return payload
+
+
+def run_foundation_check(
+    *,
+    adapter_name: str,
+    default_train_api_base_url: str,
+    train_api_base_url: str | None = None,
+    train_root_dir: str | Path | None = None,
+    train_transport: str | None = None,
+    reply_root_dir: str | Path | None = None,
+    gobii_api_base_url: str = "https://gobii.ai",
+    gobii_api_key_env: str = "GOBII_API_KEY",
+    check_gobii_live: bool = False,
+    foundation_policy: TrinityFoundationPolicy | None = None,
+) -> dict[str, Any]:
+    normalized_adapter = require_supported_adapter(adapter_name)
+    policy = foundation_policy or load_foundation_policy()
+    config = load_model_config_for_adapter(normalized_adapter)
+    adapter_policy = policy.adapter_policy(normalized_adapter)
+    train_payload = probe_train_seam(
+        default_train_api_base_url=default_train_api_base_url,
+        train_api_base_url=train_api_base_url,
+        train_root_dir=train_root_dir,
+        transport=str(train_transport or policy.train.default_transport),
+        preferred_transport=policy.train.default_transport,
+    )
+    provider_alignment = build_foundation_provider_alignment(
+        adapter_name=normalized_adapter,
+        provider=config.provider,
+        llm_enabled=config.llm_enabled,
+        policy=policy,
+    )
+    if (
+        config.llm_enabled
+        or adapter_policy.preferred_live_provider
+        or adapter_policy.release_gate_roles
+    ):
+        smoke_roles = adapter_policy.release_gate_roles or ("generator", "refiner", "evaluator")
+        provider_smoke = smoke_provider_routes(
+            adapter_name=normalized_adapter,
+            role_names=tuple(smoke_roles),
+            inventory_only=False,
+        )
+    else:
+        provider_smoke = {
+            "contract_version": PROVIDER_SMOKE_CONTRACT_VERSION,
+            "generated_at": datetime.now(UTC).isoformat(),
+            "adapter": normalized_adapter,
+            "provider": config.provider,
+            "inventory_only": False,
+            "ready": True,
+            "state": "skipped",
+            "roles": {},
+        }
+    reply_compatibility = (
+        check_reply_compatibility(reply_root_dir=reply_root_dir)
+        if normalized_adapter == "reply"
+        else None
+    )
+    gobii_status = probe_gobii_seam(
+        adapter_name=normalized_adapter,
+        base_url=str(gobii_api_base_url).strip(),
+        api_key_env=str(gobii_api_key_env or "GOBII_API_KEY"),
+        check_live=bool(check_gobii_live),
+    )
+    failures: list[str] = []
+    warnings: list[str] = []
+    preferred_transport = str(policy.train.default_transport).strip().lower()
+    train_state = (
+        train_payload.get(preferred_transport)
+        if preferred_transport in {"api", "cli"}
+        else {}
+    )
+    if not isinstance(train_state, dict) or not bool(train_state.get("ready")):
+        failures.append(f"train_{preferred_transport}_not_ready")
+    if not bool(provider_alignment.get("provider_supported")):
+        failures.append("provider_not_supported_by_foundation_policy")
+    if not bool(provider_alignment.get("provider_matches_preferred_live_provider")):
+        failures.append("provider_not_on_preferred_live_path")
+    if not bool(provider_smoke.get("ready")):
+        failures.append("provider_smoke_failed")
+    if reply_compatibility is not None and not bool(reply_compatibility.get("ready")):
+        failures.append("reply_compatibility_failed")
+    if bool(policy.optional_seams.gobii_required_for_release):
+        if not bool(gobii_status.get("ready")):
+            failures.append("gobii_required_but_not_ready")
+    elif not bool(gobii_status.get("ready")):
+        warnings.append("gobii_optional_not_ready")
+    return {
+        "contract_version": "trinity_foundation_check.v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "adapter": normalized_adapter,
+        "ready": not failures,
+        "state": "ready" if not failures else "degraded",
+        "failures": failures,
+        "warnings": warnings,
+        "foundation_policy": {
+            "contract_version": policy.contract_version,
+            "path": str(foundation_policy_path()),
+            "train_default_transport": policy.train.default_transport,
+            "optional_seams": {
+                "gobii_required_for_release": policy.optional_seams.gobii_required_for_release
+            },
+        },
+        "provider_alignment": provider_alignment,
+        "train": train_payload,
+        "provider_smoke": provider_smoke,
+        "reply_compatibility": reply_compatibility,
+        "gobii": gobii_status,
+    }
 
 
 def classify_provider_error_code(exc: Exception) -> str:

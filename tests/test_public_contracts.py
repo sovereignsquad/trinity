@@ -114,7 +114,7 @@ def test_runtime_status_public_contract(
 
     assert exit_code == 0
     assert payload["contract_version"] == "trinity_cli.v1"
-    assert payload["status_schema_version"] == 4
+    assert payload["status_schema_version"] == 5
     assert payload["command"] == "runtime-status"
     assert "generated_at" in payload
     assert "shared_model_inventory" in payload
