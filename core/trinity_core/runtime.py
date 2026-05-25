@@ -48,11 +48,71 @@ class TrinityRuntime:
     def export_training_bundle(self, cycle_id: Any, *, bundle_type: Any) -> Any:
         return self._runtime.export_training_bundle(cycle_id, bundle_type=bundle_type)
 
+    def build_source_export(self, *, company_id: Any, snapshot_ref: str | None = None) -> Any:
+        return self._runtime.build_source_export(company_id=company_id, snapshot_ref=snapshot_ref)
+
+    def build_outcome_export(self, *, company_id: Any, snapshot_ref: str | None = None) -> Any:
+        return self._runtime.build_outcome_export(company_id=company_id, snapshot_ref=snapshot_ref)
+
+    def build_memory_export(self, *, company_id: Any, snapshot_ref: str | None = None) -> Any:
+        return self._runtime.build_memory_export(company_id=company_id, snapshot_ref=snapshot_ref)
+
+    def build_delta_export(
+        self,
+        *,
+        company_id: Any,
+        cutoff_at: Any,
+        snapshot_ref: str,
+        prior_snapshot_ref: str | None = None,
+        prior_export_id: str | None = None,
+    ) -> Any:
+        return self._runtime.build_delta_export(
+            company_id=company_id,
+            cutoff_at=cutoff_at,
+            snapshot_ref=snapshot_ref,
+            prior_snapshot_ref=prior_snapshot_ref,
+            prior_export_id=prior_export_id,
+        )
+
     def ingest_memory_event(self, event: Any) -> Any:
         return self._runtime.ingest_memory_event(event)
 
     def register_document(self, document: Any) -> Any:
         return self._runtime.register_document(document)
+
+    def import_runtime_candidate_pack(
+        self,
+        *,
+        company_id: Any,
+        manifest_path: Any,
+        import_id: str | None = None,
+    ) -> Any:
+        return self._runtime.import_runtime_candidate_pack(
+            company_id=company_id,
+            manifest_path=manifest_path,
+            import_id=import_id,
+        )
+
+    def inspect_runtime_candidate_import(self, *, company_id: Any, import_id: str) -> Any:
+        return self._runtime.inspect_runtime_candidate_import(
+            company_id=company_id,
+            import_id=import_id,
+        )
+
+    def adopt_runtime_candidate_import(
+        self,
+        *,
+        company_id: Any,
+        import_id: str,
+        min_confidence: float = 0.6,
+        allow_conflicted: bool = False,
+    ) -> Any:
+        return self._runtime.adopt_runtime_candidate_import(
+            company_id=company_id,
+            import_id=import_id,
+            min_confidence=min_confidence,
+            allow_conflicted=allow_conflicted,
+        )
 
     def get_prepared_draft(self, *, company_id: Any, thread_ref: str) -> Any:
         return self._runtime.get_prepared_draft(company_id=company_id, thread_ref=thread_ref)

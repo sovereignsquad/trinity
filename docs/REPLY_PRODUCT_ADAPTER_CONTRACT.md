@@ -87,7 +87,7 @@ Trinity owns:
 
 ## Compatibility Rules
 
-- Reply remains the only implemented adapter today.
+- Reply remains the only full adapter using this drafting contract today.
 - The generic CLI path `--adapter reply` is preferred.
 - Legacy `reply-*` CLI commands remain supported as compatibility aliases.
 - Legacy local Reply storage may still resolve through `reply_runtime` when that root already exists on a machine.

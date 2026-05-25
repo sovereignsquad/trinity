@@ -16,6 +16,7 @@ from trinity_core.schemas import (
     ContactProfile,
     DocumentRecord,
     MemoryEvent,
+    MemoryEventKind,
     MemorySummary,
     PreparedDraftRefreshCandidate,
     PreparedDraftRefreshPlan,
@@ -224,6 +225,41 @@ class ReplyMemoryStore:
             for row in rows
         )
 
+    def list_memory_events(
+        self,
+        company_id: UUID | str,
+        *,
+        occurred_after: datetime | None = None,
+    ) -> tuple[MemoryEvent, ...]:
+        query = """
+            SELECT event_kind, source_ref, occurred_at, thread_ref, channel,
+                   contact_handle, content_text, metadata_json
+            FROM memory_events
+            WHERE company_id = ?
+        """
+        params: list[Any] = [str(company_id)]
+        if occurred_after is not None:
+            query += " AND occurred_at > ?"
+            params.append(_iso(occurred_after))
+        query += " ORDER BY occurred_at ASC, event_kind ASC, source_ref ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        company_uuid = UUID(str(company_id)) if not isinstance(company_id, UUID) else company_id
+        return tuple(
+            MemoryEvent(
+                company_id=company_uuid,
+                event_kind=MemoryEventKind(str(row[0])),
+                source_ref=str(row[1]),
+                occurred_at=_parse_datetime(row[2]) or datetime.now(UTC),
+                thread_ref=row[3],
+                channel=row[4],
+                contact_handle=row[5],
+                content_text=row[6],
+                metadata=_json_object(row[7]),
+            )
+            for row in rows
+        )
+
     def register_document(self, document: DocumentRecord) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -255,6 +291,39 @@ class ReplyMemoryStore:
                     metadata=document.metadata,
                 )
             )
+
+    def list_documents(
+        self,
+        company_id: UUID | str,
+        *,
+        occurred_after: datetime | None = None,
+    ) -> tuple[DocumentRecord, ...]:
+        query = """
+            SELECT document_ref, source, path, title, content_text, occurred_at, metadata_json
+            FROM documents
+            WHERE company_id = ?
+        """
+        params: list[Any] = [str(company_id)]
+        if occurred_after is not None:
+            query += " AND occurred_at IS NOT NULL AND occurred_at > ?"
+            params.append(_iso(occurred_after))
+        query += " ORDER BY COALESCE(occurred_at, '') ASC, document_ref ASC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        company_uuid = UUID(str(company_id)) if not isinstance(company_id, UUID) else company_id
+        return tuple(
+            DocumentRecord(
+                company_id=company_uuid,
+                document_ref=str(row[0]),
+                source=str(row[1]),
+                path=str(row[2]),
+                title=row[3],
+                content_text=str(row[4] or ""),
+                occurred_at=_parse_datetime(row[5]),
+                metadata=_json_object(row[6]),
+            )
+            for row in rows
+        )
 
     def delete_document(self, company_id: UUID | str, document_ref: str) -> None:
         with self._connect() as conn:
@@ -311,6 +380,57 @@ class ReplyMemoryStore:
                 content=row[2],
                 created_at=_parse_datetime(row[3]) or datetime.now(UTC),
                 metadata=_json_object(row[4]),
+            )
+            for row in rows
+        )
+
+    def list_contact_profiles(self, company_id: UUID | str) -> tuple[ContactProfile, ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT contact_handle, display_name, summary, metadata_json, updated_at
+                FROM contact_profiles
+                WHERE company_id = ?
+                ORDER BY updated_at ASC, contact_handle ASC
+                """,
+                (str(company_id),),
+            ).fetchall()
+        company_uuid = UUID(str(company_id)) if not isinstance(company_id, UUID) else company_id
+        return tuple(
+            ContactProfile(
+                company_id=company_uuid,
+                contact_handle=str(row[0]),
+                display_name=row[1],
+                summary=str(row[2] or ""),
+                metadata=_json_object(row[3]),
+                updated_at=_parse_datetime(row[4]),
+            )
+            for row in rows
+        )
+
+    def list_thread_states(self, company_id: UUID | str) -> tuple[ThreadState, ...]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT thread_ref, channel, contact_handle, latest_inbound_text,
+                       last_event_at, last_snapshot_at, metadata_json
+                FROM thread_states
+                WHERE company_id = ?
+                ORDER BY COALESCE(last_snapshot_at, last_event_at, '') ASC, thread_ref ASC
+                """,
+                (str(company_id),),
+            ).fetchall()
+        company_uuid = UUID(str(company_id)) if not isinstance(company_id, UUID) else company_id
+        return tuple(
+            ThreadState(
+                company_id=company_uuid,
+                thread_ref=str(row[0]),
+                channel=str(row[1]),
+                contact_handle=str(row[2]),
+                latest_inbound_text=str(row[3] or ""),
+                last_event_at=_parse_datetime(row[4]),
+                last_snapshot_at=_parse_datetime(row[5]),
+                metadata=_json_object(row[6]),
             )
             for row in rows
         )

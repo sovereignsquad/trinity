@@ -29,6 +29,7 @@ class TrinityModelProvider(Protocol):
         route: TrinityRoleRoute,
         system_prompt: str,
         user_prompt: str,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         """Execute one structured chat request through the provider."""
 
@@ -49,6 +50,7 @@ class DeterministicModelProvider:
         route: TrinityRoleRoute,
         system_prompt: str,
         user_prompt: str,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         raise ModelProviderError(
             "Deterministic provider does not implement chat_json; "

@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 from trinity_core.adapters.model.base import ModelProviderError
@@ -27,6 +29,13 @@ class MistralCLIModelProvider:
     model_binding: str = "advisory"
     provider_name: str = "mistral-cli"
     supports_model_inventory: bool = False
+    request_diagnostics: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False, compare=False)
+
+    def reset_request_diagnostics(self) -> None:
+        self.request_diagnostics.clear()
+
+    def get_request_diagnostics(self) -> tuple[dict[str, Any], ...]:
+        return tuple(self.request_diagnostics)
 
     def chat_json(
         self,
@@ -34,6 +43,7 @@ class MistralCLIModelProvider:
         route: TrinityRoleRoute,
         system_prompt: str,
         user_prompt: str,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         executable_path = shutil.which(self.executable)
         if not executable_path:
@@ -66,22 +76,57 @@ class MistralCLIModelProvider:
             "--trust",
             *self.extra_args,
         ]
+        started_at = datetime.now(UTC)
+        started_perf = perf_counter()
+        diag = {
+            "started_at": started_at.isoformat(),
+            "kind": "chat_json",
+            "provider": self.provider_name,
+            "model": route.model,
+            "model_id": route.model_id,
+            "timeout_seconds": timeout_seconds if timeout_seconds is not None else self.timeout_seconds,
+            "command": command[:4],
+        }
         try:
             result = subprocess.run(
                 command,
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout_seconds,
+                timeout=timeout_seconds if timeout_seconds is not None else self.timeout_seconds,
             )
         except subprocess.TimeoutExpired as exc:
+            diag.update({
+                "status": "timeout",
+                "duration_ms": round((perf_counter() - started_perf) * 1000, 3),
+                "error": str(exc),
+            })
+            self.request_diagnostics.append(diag)
             raise MistralCLIError(
-                f"Mistral CLI timed out after {self.timeout_seconds:.0f}s."
+                "Mistral CLI timed out after "
+                f"{timeout_seconds if timeout_seconds is not None else self.timeout_seconds:.0f}s."
             ) from exc
         except OSError as exc:
+            diag.update({
+                "status": "launch_error",
+                "duration_ms": round((perf_counter() - started_perf) * 1000, 3),
+                "error": str(exc),
+            })
+            self.request_diagnostics.append(diag)
             raise MistralCLIError(
                 f"Mistral CLI process launch failed: {exc}"
             ) from exc
+
+        diag.update({
+            "status": "ok" if result.returncode == 0 else "nonzero_exit",
+            "duration_ms": round((perf_counter() - started_perf) * 1000, 3),
+            "returncode": result.returncode,
+            "stdout_bytes": len((result.stdout or "").encode("utf-8")),
+            "stderr_bytes": len((result.stderr or "").encode("utf-8")),
+        })
+        if result.returncode != 0:
+            diag["error"] = (result.stderr or "").strip()[:500]
+        self.request_diagnostics.append(diag)
 
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()

@@ -6,7 +6,7 @@ This document records the current implementation state of `{trinity}`.
 
 Snapshot date:
 
-- `2026-05-20`
+- `2026-05-24`
 
 Current release:
 
@@ -22,6 +22,13 @@ Current release:
 - explicit relation-health supervision for the main external dependencies
 
 The repository is no longer in the earlier “extract the generic runtime at all” phase. That work is done. The current state is a reusable runtime with bounded but real downstream and ops integrations.
+
+The current tranche also lands:
+
+- the first full `{trinity}` producer/export lane for `{train}` portable-pack inputs
+- the first bounded reverse import/adoption lane for selective Train runtime-candidate packs
+
+The newest upstream change on the `{reply}` side is that already-synced local Notes, Calendar, Contacts, Contact Intelligence, historical conversation rows, and accepted draft outcomes can now be replayed into the existing Trinity seam without a full source re-sync. That means the next practical lane is widening ingest coverage and validating those richer Reply-owned inputs through the existing export families, not rebuilding export infrastructure here.
 
 ## Implemented Today
 
@@ -89,6 +96,7 @@ The supporting implementation lives in:
 - the recent documentation sweep now also includes a repo-wide code comment and docstring audit across the active Python runtime surface
 - stale module/class wording was corrected where the code had outgrown the older narrower description, especially around Train handoff scope, `mistral-cli` bounded mode, eval/governance ownership, Gobii agent registration scope, and accepted-artifact governance lineage
 - the follow-on `tests/` pass found very little prose drift; the useful fixes there were naming-precision updates in a small number of tests/helpers rather than broad comment rewrites
+- the current follow-on doc sweep now also aligns the README, CLI/API docs, local install, user guide, settings guide, shell docs, and operating-contract docs with the adapter-aware native shell and portable export posture
 
 ### Governance And Learning Artifacts
 
@@ -96,6 +104,24 @@ The supporting implementation lives in:
 - release-governance reports, triage queues, triage resolution, and release-decision lineage
 - policy review, acceptance, promotion, rollback, and status
 - post-training dataset export, curation, promotion, and deterministic split generation
+- explicit portable source exports for raw Reply-originated/runtime-owned source records
+- explicit portable outcome exports for accepted-outcome supervision corpora
+- portable outcome exports now treat only send-grade reply outcomes as final supervision; `SHOWN` and similarly ambiguous feedback remain runtime traces but no longer surface as `final_outcome` records for `{train}`
+- explicit portable memory exports for governed structured runtime memory
+- explicit cutoff-linked delta exports for replay-safe next-snapshot pack builds
+- explicit staged reverse imports for Train `runtime-candidate-pack` bundles
+- explicit bounded runtime adoption of staged runtime-memory, runtime-summary,
+  and runtime-reply-support candidates into runtime summaries and retrieval docs
+- explicit imported-runtime diagnostics on live Reply suggestion paths so downstream
+  consumers can see when Train-derived runtime knowledge actually supported a draft
+
+Primary portable-export implementation:
+
+- [core/trinity_core/schemas/portable_exports.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/portable_exports.py)
+- [core/trinity_core/ops/portable_exports.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/portable_exports.py)
+- [core/trinity_core/schemas/runtime_candidates.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/runtime_candidates.py)
+- [core/trinity_core/ops/runtime_candidate_imports.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_candidate_imports.py)
+- [docs/PORTABLE_EXPORTS.md](/Users/Shared/Projects/trinity/docs/PORTABLE_EXPORTS.md)
 
 ### Ops And Control Plane
 
@@ -112,6 +138,16 @@ The supporting implementation lives in:
 - macOS native shell remains present under `apps/macos`
 - the shell is positioned as a native operator surface, not a web wrapper
 - the shell now includes a native Admin page and Settings scene for machine-local foundation policy and active adapter model-config editing
+- governance artifact loading now runs off-main with explicit `loading`, `missing`, and `failed` operator states instead of silent empty fallbacks
+- admin settings file load/save now runs off-main with visible in-flight and failure feedback
+- the shell now derives its visible adapter list from the shared adapter catalog instead of hardcoding Reply and Spot across the operator UI
+- the native shell design primitives now include shared section headers, banners, empty states, loading states, form fields, and path badges
+
+### Operator Documentation
+
+- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md) now summarizes the practical operator path after install
+- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md) now documents machine-local foundation policy, adapter config, shell parity, and path behavior
+- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md) now summarizes the public CLI, runtime facade, and machine-readable status surfaces
 
 ## Current Verified Local State
 
@@ -179,6 +215,9 @@ Most relevant recent verification:
 
 - `uv run pytest`
 - `uv run ruff check .`
+- `PYTHONPATH=core uv run pytest tests/test_portable_exports.py -q`
+- `PYTHONPATH=core uv run pytest tests/test_portable_exports.py tests/test_public_contracts.py tests/test_adapter_runtime.py tests/test_integration_contracts.py -q`
+- `PYTHONPATH=core uv run ruff check core/trinity_core/ops/portable_exports.py core/trinity_core/cli.py core/trinity_core/reply_runtime.py core/trinity_core/runtime.py core/trinity_core/memory/storage.py core/trinity_core/ops/cycle_store.py core/trinity_core/schemas/portable_exports.py tests/test_portable_exports.py`
 - `PYTHONPATH=core uv run pytest tests/test_relation_health.py tests/test_foundation_policy.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py -q`
 - `PYTHONPATH=core uv run ruff check core/trinity_core/ops/foundation_policy.py core/trinity_core/ops/relation_health.py core/trinity_core/ops/train_client.py core/trinity_core/ops/__init__.py core/trinity_core/cli.py tests/test_relation_health.py tests/test_foundation_policy.py tests/test_train_client.py tests/test_adapter_runtime.py tests/test_public_contracts.py`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli runtime-status --adapter reply`
@@ -189,10 +228,12 @@ Most relevant recent verification:
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli check-reply-compatibility --reply-root-dir /Users/Shared/Projects/reply`
 - `set -a && source .env.local && set +a && PYTHONPATH=core uv run python -m trinity_core.cli gobii-status --adapter reply --check-live`
 - `cd apps/macos && swift build`
+- `PYTHONPATH=core uv run pytest tests/test_runtime_candidate_imports.py tests/test_portable_exports.py -q`
+- `PYTHONPATH=core uv run ruff check core/trinity_core/ops/runtime_candidate_imports.py core/trinity_core/schemas/runtime_candidates.py tests/test_runtime_candidate_imports.py`
 
 ## Current Constraints
 
-- `reply` is the only full downstream workflow; `spot` is still intentionally narrower
+- `reply` remains the only full downstream workflow shipped today; `spot` is still intentionally narrower
 - Reply-only compatibility aliases remain part of the public contract
 - provider comparison and eval replay are still Reply-centric
 - `mistral-cli` remains bounded to the `vibe` path and advisory model binding

@@ -12,6 +12,12 @@ Follow-on implementation plan:
 
 - [docs/RELATIONSHIP_HARDENING_PLAN.md](/Users/Shared/Projects/trinity/docs/RELATIONSHIP_HARDENING_PLAN.md)
 
+Companion operator docs:
+
+- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
+- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
+- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
+
 ## Verification Used
 
 This snapshot was refreshed with:
@@ -139,6 +145,18 @@ Assessment:
 
 - the inventory seam is active and visible
 - it is useful for provenance and readiness, but it is not yet the authoritative execution controller for every role
+
+### Native Shell
+
+- governance artifact loading now runs off-main
+- governance states now distinguish `loading`, `missing`, and `failed`
+- settings reload/save now run off-main
+- the shell now derives visible adapters from the shared adapter catalog
+
+Assessment:
+
+- the shell is now materially safer as an operator surface
+- the main remaining limitation is the intentionally narrow policy/config schema for the adapters explicitly modeled today
 
 ## Referenced But Not Active Dependencies
 

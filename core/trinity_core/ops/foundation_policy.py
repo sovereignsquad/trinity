@@ -37,7 +37,7 @@ class OptionalSeamPolicy:
 
 @dataclass(frozen=True, slots=True)
 class TrinityFoundationPolicy:
-    """Full machine-local foundation policy contract."""
+    """Full machine-local foundation policy contract for the adapters modeled today."""
 
     contract_version: str
     train: TrainFoundationPolicy

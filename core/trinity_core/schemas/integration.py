@@ -1,4 +1,4 @@
-"""Product-facing integration contracts owned by the Trinity runtime."""
+"""Reply-owned adapter integration contracts consumed by the Trinity runtime."""
 
 from __future__ import annotations
 
@@ -242,6 +242,7 @@ class RankedDraftSet:
     drafts: tuple[CandidateDraft, ...]
     accepted_artifact_version: AcceptedArtifactVersion
     trace_ref: str | None = None
+    runtime_diagnostics: Mapping[str, Any] = field(default_factory=dict)
     contract_version: str = REPLY_CONTRACT_VERSION
 
     def __post_init__(self) -> None:

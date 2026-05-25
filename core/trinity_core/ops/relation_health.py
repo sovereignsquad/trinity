@@ -1,4 +1,4 @@
-"""Bounded seam-health helpers for external and cross-repo Trinity relations."""
+"""Bounded seam-health helpers for provider, Train, Gobii, and cross-repo relations."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from uuid import UUID
 
 from trinity_core.adapters import require_supported_adapter
 from trinity_core.adapters.model.base import UnsupportedModelProviderError, build_model_provider
-from trinity_core.model_config import load_model_config_for_adapter
+from trinity_core.model_config import load_model_config_for_adapter, resolve_runtime_model_config
 from trinity_core.ops.foundation_policy import (
     TrinityFoundationPolicy,
     build_foundation_provider_alignment,
@@ -111,12 +111,18 @@ def smoke_provider_routes(
     inventory_only: bool = False,
 ) -> dict[str, Any]:
     normalized_adapter = require_supported_adapter(adapter_name)
-    config = load_model_config_for_adapter(normalized_adapter)
+    configured_config = load_model_config_for_adapter(normalized_adapter)
+    config, config_resolution = resolve_runtime_model_config(configured_config)
     payload = {
         "contract_version": PROVIDER_SMOKE_CONTRACT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "adapter": normalized_adapter,
         "provider": config.provider,
+        "configured_provider": configured_config.provider,
+        "provider_fallback": {
+            "applied": bool(config_resolution.get("fallback_applied")),
+            "reason": config_resolution.get("reason"),
+        },
         "inventory_only": bool(inventory_only),
         "ready": False,
         "state": "disabled",

@@ -89,7 +89,7 @@ struct TrinityApp: App {
 
 struct ContentView: View {
     @State private var selectedPage: TrinityPage? = .overview
-    @State private var governanceSnapshots = TrinityGovernanceLoader.loadAll()
+    @StateObject private var governanceStore = TrinityGovernanceStore()
 
     var body: some View {
         TrinityShell {
@@ -111,23 +111,24 @@ struct ContentView: View {
                 }
             }
         }
+        .task {
+            if governanceStore.snapshots.isEmpty {
+                await governanceStore.reload()
+            }
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("trinity")
-                        .font(.largeTitle.weight(.bold))
-                        .foregroundStyle(TrinityPalette.textPrimary)
-                    Text("Candidate-runtime operator shell")
-                        .font(.title3)
-                        .foregroundStyle(TrinityPalette.textSecondary)
-                }
+                TrinitySectionHeader(
+                    title: "trinity",
+                    subtitle: "Candidate-runtime operator shell"
+                )
                 Spacer()
                 TrinityStatusPill(label: "Scaffold active", color: TrinityPalette.info)
             }
-            Text("This shell is now aligned to the shared operator language and is ready to host the runtime workflow surfaces.")
+            Text("This shell is aligned to the shared runtime language and is ready to host multiple downstream adapter surfaces.")
                 .foregroundStyle(TrinityPalette.textSecondary)
         }
         .trinityPanel()
@@ -155,8 +156,8 @@ struct ContentView: View {
                 )
                 summaryCard(
                     title: "Product contract",
-                    body: "Keep reply-facing payloads explicit and versioned instead of embedding UI assumptions.",
-                    status: ("v1 adapter path", TrinityPalette.warning)
+                    body: "Keep adapter payloads explicit and versioned instead of embedding product-specific UI assumptions.",
+                    status: ("Multi-app ready", TrinityPalette.warning)
                 )
             }
         case .timeline:
@@ -204,11 +205,31 @@ struct ContentView: View {
                             .font(.headline)
                         Spacer()
                         Button("Refresh") {
-                            governanceSnapshots = TrinityGovernanceLoader.loadAll()
+                            Task {
+                                await governanceStore.reload()
+                            }
                         }
+                        .disabled(governanceStore.isLoading)
                     }
-                    ForEach(governanceSnapshots) { snapshot in
-                        governanceSnapshotCard(snapshot)
+                    if governanceStore.isLoading && governanceStore.snapshots.isEmpty {
+                        TrinityLoadingState(title: "Loading persisted governance artifacts...")
+                    }
+                    if let loadErrorMessage = governanceStore.loadErrorMessage {
+                        TrinityInlineBanner(
+                            title: "Partial artifact load failure",
+                            bodyText: loadErrorMessage,
+                            color: TrinityPalette.warning
+                        )
+                    }
+                    if !governanceStore.isLoading && governanceStore.snapshots.isEmpty {
+                        TrinityEmptyState(
+                            title: "No governance artifacts yet",
+                            bodyText: "The shell did not find persisted runtime governance data in the local Trinity app-support directory."
+                        )
+                    } else {
+                        ForEach(governanceStore.snapshots) { snapshot in
+                            governanceSnapshotCard(snapshot)
+                        }
                     }
                 }
             }
@@ -219,10 +240,7 @@ struct ContentView: View {
 
     private func sectionPanel<Content: View>(title: String, subtitle: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-            Text(subtitle)
-                .foregroundStyle(TrinityPalette.textSecondary)
+            TrinitySectionHeader(title: title, subtitle: subtitle)
             content()
         }
         .trinityPanel()
@@ -278,10 +296,19 @@ struct ContentView: View {
                 }
                 Spacer()
                 TrinityStatusPill(
+                    label: governanceStateLabel(snapshot.readStatus),
+                    color: governanceStateColor(snapshot.readStatus)
+                )
+                TrinityStatusPill(
                     label: snapshot.latestReleaseStatus == "none" ? "No release call" : snapshot.latestReleaseStatus,
                     color: snapshot.latestReleaseStatus == "approve" ? TrinityPalette.success : TrinityPalette.warning
                 )
             }
+            TrinityInlineBanner(
+                title: governanceStateTitle(snapshot.readStatus),
+                bodyText: snapshot.statusDetail,
+                color: governanceStateColor(snapshot.readStatus)
+            )
             HStack {
                 TrinityStatusPill(label: "Review \(snapshot.latestReviewStatus)", color: TrinityPalette.info)
                 TrinityStatusPill(
@@ -319,5 +346,29 @@ struct ContentView: View {
             }
         }
         .trinityPanel()
+    }
+
+    private func governanceStateLabel(_ status: TrinityGovernanceReadStatus) -> String {
+        switch status {
+        case .loaded: "Loaded"
+        case .missing: "Missing"
+        case .failed: "Read failed"
+        }
+    }
+
+    private func governanceStateTitle(_ status: TrinityGovernanceReadStatus) -> String {
+        switch status {
+        case .loaded: "Artifacts available"
+        case .missing: "No local artifact history"
+        case .failed: "Artifact read problem"
+        }
+    }
+
+    private func governanceStateColor(_ status: TrinityGovernanceReadStatus) -> Color {
+        switch status {
+        case .loaded: TrinityPalette.success
+        case .missing: TrinityPalette.info
+        case .failed: TrinityPalette.warning
+        }
     }
 }

@@ -1,4 +1,4 @@
-"""Operational helpers for runtime environment integration."""
+"""Operational helpers for runtime storage, governance, external seams, and exports."""
 
 from trinity_core.memory.storage import ReplyMemoryStore
 
@@ -116,6 +116,17 @@ from .policy_registry import (
     ReplyPolicyReviewArtifact,
     resolve_accepted_artifact_registry_paths,
 )
+from .portable_exports import (
+    PortableExportPaths,
+    PortableExportStore,
+    build_delta_export,
+    build_memory_export,
+    build_outcome_export,
+    build_source_export,
+    inspect_portable_export,
+    resolve_portable_export_paths,
+    validate_portable_export_lineage,
+)
 from .post_training_datasets import (
     PostTrainingDatasetPaths,
     apply_post_training_curation_decision,
@@ -185,6 +196,16 @@ from .reply_shadow_fixtures import (
     shadow_fixture_payload,
     summarize_reply_shadow_results,
 )
+from .runtime_candidate_imports import (
+    RuntimeCandidateAdoptionError,
+    RuntimeCandidateImportError,
+    RuntimeCandidateImportPaths,
+    RuntimeCandidateImportStore,
+    adopt_runtime_candidate_import,
+    import_runtime_candidate_pack,
+    inspect_runtime_candidate_import,
+    resolve_runtime_candidate_import_paths,
+)
 from .runtime_storage import (
     AdapterRuntimePaths,
     RuntimeStoragePaths,
@@ -232,6 +253,10 @@ __all__ = [
     "ReplyPolicyStore",
     "ReplyPolicyStorePaths",
     "ResolvedReplyPolicy",
+    "RuntimeCandidateAdoptionError",
+    "RuntimeCandidateImportError",
+    "RuntimeCandidateImportPaths",
+    "RuntimeCandidateImportStore",
     "ReplyShadowComparisonResult",
     "ReplyShadowFixture",
     "TrainFoundationPolicy",
@@ -254,6 +279,8 @@ __all__ = [
     "GobiiWorkflowPaths",
     "OptionalSeamPolicy",
     "PostTrainingDatasetPaths",
+    "PortableExportPaths",
+    "PortableExportStore",
     "ProviderComparisonFixtureResult",
     "ProviderComparisonReport",
     "ProviderComparisonRouteSummary",
@@ -268,8 +295,12 @@ __all__ = [
     "build_foundation_provider_alignment",
     "build_gobii_workflow_bundle",
     "build_gobii_tracked_entity_enrichment_bundle",
+    "build_delta_export",
+    "build_memory_export",
+    "build_outcome_export",
     "build_post_training_dataset",
     "build_post_training_dataset_split",
+    "build_source_export",
     "check_reply_compatibility",
     "default_foundation_policy",
     "apply_post_training_curation_decision",
@@ -315,6 +346,7 @@ __all__ = [
     "make_score_health_review_decision",
     "make_score_governance_release_decision",
     "make_score_governance_triage_resolution",
+    "inspect_portable_export",
     "persist_reply_policy_review_result",
     "make_prepared_draft_refresh_job",
     "make_provider_comparison_job",
@@ -347,15 +379,20 @@ __all__ = [
     "resolve_gobii_normalization_paths",
     "resolve_gobii_task_paths",
     "resolve_post_training_dataset_paths",
+    "resolve_portable_export_paths",
     "resolve_reply_policy_store_paths",
     "resolve_provider_comparison_store_paths",
     "resolve_spot_policy_store_paths",
     "resolve_adapter_runtime_paths",
+    "resolve_runtime_candidate_import_paths",
     "resolve_runtime_storage_paths",
     "run_reply_shadow_fixture",
     "run_reply_shadow_fixtures",
     "run_reply_provider_comparison",
     "run_reply_provider_comparison_from_fixture_dir",
+    "adopt_runtime_candidate_import",
+    "import_runtime_candidate_pack",
+    "inspect_runtime_candidate_import",
     "run_control_plane_job",
     "run_foundation_check",
     "replay_reply_eval_dataset",
@@ -385,6 +422,7 @@ __all__ = [
     "summarize_score_governance_triage_report",
     "summarize_score_health_report",
     "summarize_score_health_trend_report",
+    "validate_portable_export_lineage",
     "default_train_proposal_paths",
     "default_train_spot_proposal_paths",
     "propose_reply_policy_via_train_api",

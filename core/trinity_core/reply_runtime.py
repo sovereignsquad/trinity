@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from difflib import SequenceMatcher
+from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -30,9 +32,20 @@ from trinity_core.memory import (
     apply_memory_similarity_signals,
     build_runtime_memory_profile,
 )
-from trinity_core.model_config import load_model_config
+from trinity_core.model_config import load_model_config, resolve_runtime_model_config
 from trinity_core.ops.cycle_store import RuntimeCycleStore, dataclass_payload
+from trinity_core.ops.portable_exports import (
+    build_delta_export,
+    build_memory_export,
+    build_outcome_export,
+    build_source_export,
+)
 from trinity_core.ops.reply_policy_store import ReplyPolicyStore
+from trinity_core.ops.runtime_candidate_imports import (
+    adopt_runtime_candidate_import,
+    import_runtime_candidate_pack,
+    inspect_runtime_candidate_import,
+)
 from trinity_core.ops.runtime_trace import (
     build_runtime_loop_decision_payload,
     build_runtime_memory_context_payload,
@@ -151,8 +164,11 @@ class ReplyRuntime:
         self.policy_store = policy_store or ReplyPolicyStore()
         self.memory_store = memory_store or ReplyMemoryStore()
         self.memory_resolver = ReplyMemoryResolver(self.memory_store)
-        self.model_config = load_model_config("reply")
+        self.config_resolution = {}
+        raw_model_config = load_model_config("reply")
+        self.model_config, self.config_resolution = resolve_runtime_model_config(raw_model_config)
         self.model_provider = build_model_provider(self.model_config)
+        self._active_runtime_diagnostics: dict[str, Any] | None = None
 
     @property
     def ollama_client(self) -> Any:
@@ -163,17 +179,26 @@ class ReplyRuntime:
         self.model_provider = value
 
     def suggest(self, snapshot: ThreadSnapshot) -> RankedDraftSet:
+        started_perf = perf_counter()
         cycle_id = uuid4()
         cycle_time = snapshot.requested_at
+        runtime_diagnostics = self._start_runtime_diagnostics()
+        policy_started_perf = perf_counter()
         resolved_policy = self.policy_store.resolve_with_summary(
             company_id=snapshot.company_id,
             channel=snapshot.channel,
         )
+        runtime_diagnostics["stage_timings"]["policy_resolution_ms"] = _elapsed_ms(policy_started_perf)
         active_policy_record = resolved_policy.accepted_policy
         active_policy = active_policy_record.policy if active_policy_record else None
+        memory_started_perf = perf_counter()
         memory_context = self.memory_resolver.resolve_for_snapshot(snapshot)
         memory_profile = build_runtime_memory_profile(memory_context)
+        runtime_diagnostics["stage_timings"]["memory_resolution_ms"] = _elapsed_ms(memory_started_perf)
+        evidence_started_perf = perf_counter()
         evidence_units = self._build_evidence(snapshot)
+        runtime_diagnostics["stage_timings"]["evidence_build_ms"] = _elapsed_ms(evidence_started_perf)
+        pipeline_started_perf = perf_counter()
         pipeline = execute_candidate_pipeline(
             GeneratorExecutionInput(
                 company_id=snapshot.company_id,
@@ -207,6 +232,11 @@ class ReplyRuntime:
             ),
             now=cycle_time,
         )
+        runtime_diagnostics["stage_timings"]["pipeline_ms"] = _elapsed_ms(pipeline_started_perf)
+        runtime_diagnostics["provider_diagnostics"] = self._provider_request_diagnostics()
+        imported_runtime_knowledge = _summarize_imported_runtime_knowledge(memory_context)
+        if imported_runtime_knowledge is not None:
+            runtime_diagnostics["imported_runtime_knowledge"] = imported_runtime_knowledge
         pipeline = replace(
             pipeline,
             evaluated=replace(
@@ -298,7 +328,12 @@ class ReplyRuntime:
                 for entry in surfaced_frontier
             ),
             accepted_artifact_version=artifact,
+            runtime_diagnostics={},
         )
+        runtime_diagnostics["stage_timings"]["post_process_ms"] = _elapsed_ms(pipeline_started_perf) - (
+            runtime_diagnostics["stage_timings"].get("pipeline_ms", 0.0) or 0.0
+        )
+        persist_started_perf = perf_counter()
         trace = RuntimeTraceExport(
             cycle_id=cycle_id,
             exported_at=cycle_time,
@@ -335,10 +370,23 @@ class ReplyRuntime:
         ranked_with_trace = replace(ranked, trace_ref=str(self.store.export_path(cycle_id)))
         self._remember_thread_snapshot(snapshot)
         self._remember_prepared_draft(snapshot, ranked_with_trace, generation_reason="suggest")
-        return ranked_with_trace
+        runtime_diagnostics["stage_timings"]["persist_ms"] = _elapsed_ms(persist_started_perf)
+        runtime_diagnostics["pipeline"] = {
+            "total_ms": _elapsed_ms(started_perf),
+            "generated_count": len(pipeline.generated.records),
+            "refined_count": len(pipeline.refined.records),
+            "evaluated_count": len(pipeline.evaluated.records),
+            "frontier_count": len(surfaced_frontier),
+        }
+        runtime_diagnostics.pop("_started_perf", None)
+        self._active_runtime_diagnostics = None
+        return replace(ranked_with_trace, runtime_diagnostics=runtime_diagnostics)
 
     def record_outcome(self, event: DraftOutcomeEvent) -> dict[str, Any]:
-        payload = self.store.load_cycle(event.cycle_id, event.company_id)
+        try:
+            payload = self.store.load_cycle(event.cycle_id, event.company_id)
+        except FileNotFoundError:
+            payload = _historical_cycle_payload_from_outcome(event)
         payload.setdefault("feedback_events", []).append(dataclass_payload(event))
         candidate_id = str(event.candidate_id) if event.candidate_id else None
         if candidate_id:
@@ -383,6 +431,66 @@ class ReplyRuntime:
             "bundle_path": str(bundle_path),
             "bundle": dataclass_payload(bundle),
         }
+
+    def build_source_export(
+        self,
+        *,
+        company_id: UUID | str,
+        snapshot_ref: str | None = None,
+    ) -> dict[str, Any]:
+        return build_source_export(
+            adapter_name="reply",
+            company_id=company_id,
+            snapshot_ref=snapshot_ref,
+            cycle_store=self.store,
+            memory_store=self.memory_store,
+        )
+
+    def build_outcome_export(
+        self,
+        *,
+        company_id: UUID | str,
+        snapshot_ref: str | None = None,
+    ) -> dict[str, Any]:
+        return build_outcome_export(
+            adapter_name="reply",
+            company_id=company_id,
+            snapshot_ref=snapshot_ref,
+            cycle_store=self.store,
+        )
+
+    def build_memory_export(
+        self,
+        *,
+        company_id: UUID | str,
+        snapshot_ref: str | None = None,
+    ) -> dict[str, Any]:
+        return build_memory_export(
+            adapter_name="reply",
+            company_id=company_id,
+            snapshot_ref=snapshot_ref,
+            memory_store=self.memory_store,
+        )
+
+    def build_delta_export(
+        self,
+        *,
+        company_id: UUID | str,
+        cutoff_at: datetime,
+        snapshot_ref: str,
+        prior_snapshot_ref: str | None = None,
+        prior_export_id: str | None = None,
+    ) -> dict[str, Any]:
+        return build_delta_export(
+            adapter_name="reply",
+            company_id=company_id,
+            cutoff_at=cutoff_at,
+            snapshot_ref=snapshot_ref,
+            prior_snapshot_ref=prior_snapshot_ref,
+            prior_export_id=prior_export_id,
+            cycle_store=self.store,
+            memory_store=self.memory_store,
+        )
 
     def ingest_memory_event(self, event: MemoryEvent) -> dict[str, Any]:
         self.memory_store.record_event(event)
@@ -444,6 +552,49 @@ class ReplyRuntime:
             "document_ref": document.document_ref,
             "path": document.path,
         }
+
+    def import_runtime_candidate_pack(
+        self,
+        *,
+        company_id: UUID | str,
+        manifest_path: str | os.PathLike[str],
+        import_id: str | None = None,
+    ) -> dict[str, Any]:
+        return import_runtime_candidate_pack(
+            adapter_name="reply",
+            company_id=company_id,
+            manifest_path=manifest_path,
+            import_id=import_id,
+        )
+
+    def inspect_runtime_candidate_import(
+        self,
+        *,
+        company_id: UUID | str,
+        import_id: str,
+    ) -> dict[str, Any]:
+        return inspect_runtime_candidate_import(
+            adapter_name="reply",
+            company_id=company_id,
+            import_id=import_id,
+        )
+
+    def adopt_runtime_candidate_import(
+        self,
+        *,
+        company_id: UUID | str,
+        import_id: str,
+        min_confidence: float = 0.6,
+        allow_conflicted: bool = False,
+    ) -> dict[str, Any]:
+        return adopt_runtime_candidate_import(
+            adapter_name="reply",
+            company_id=company_id,
+            import_id=import_id,
+            min_confidence=min_confidence,
+            allow_conflicted=allow_conflicted,
+            memory_store=self.memory_store,
+        )
 
     def get_prepared_draft(
         self,
@@ -688,8 +839,11 @@ class ReplyRuntime:
     ):
         deterministic_runner = self._deterministic_generator_runner(snapshot, active_policy)
         if self.model_config.llm_enabled:
-            return self._llm_generator_runner(snapshot, deterministic_runner, active_policy)
-        return deterministic_runner
+            return self._instrument_stage_runner(
+                "generator",
+                self._llm_generator_runner(snapshot, deterministic_runner, active_policy),
+            )
+        return self._instrument_stage_runner("generator", deterministic_runner)
 
     def _deterministic_generator_runner(
         self,
@@ -765,9 +919,14 @@ class ReplyRuntime:
         active_policy: ReplyBehaviorPolicy | None,
     ):
         deterministic_runner = self._deterministic_refiner_runner(snapshot, active_policy)
+        if self.config_resolution.get("fallback_applied"):
+            return self._instrument_stage_runner("refiner", deterministic_runner)
         if self.model_config.llm_enabled:
-            return self._llm_refiner_runner(snapshot, deterministic_runner, active_policy)
-        return deterministic_runner
+            return self._instrument_stage_runner(
+                "refiner",
+                self._llm_refiner_runner(snapshot, deterministic_runner, active_policy),
+            )
+        return self._instrument_stage_runner("refiner", deterministic_runner)
 
     def _deterministic_refiner_runner(
         self,
@@ -804,9 +963,14 @@ class ReplyRuntime:
         active_policy: ReplyBehaviorPolicy | None,
     ):
         deterministic_runner = self._deterministic_evaluator_runner(snapshot)
+        if self.config_resolution.get("fallback_applied"):
+            return self._instrument_stage_runner("evaluator", deterministic_runner)
         if self.model_config.llm_enabled:
-            return self._llm_evaluator_runner(snapshot, deterministic_runner, active_policy)
-        return deterministic_runner
+            return self._instrument_stage_runner(
+                "evaluator",
+                self._llm_evaluator_runner(snapshot, deterministic_runner, active_policy),
+            )
+        return self._instrument_stage_runner("evaluator", deterministic_runner)
 
     def _deterministic_evaluator_runner(self, snapshot: ThreadSnapshot):
         latest = snapshot.latest_inbound_text
@@ -865,11 +1029,15 @@ class ReplyRuntime:
     ):
         def runner(stage_input: GeneratorExecutionInput):
             try:
+                request_timeout = self._request_timeout_seconds()
+                if request_timeout is not None and request_timeout <= 0:
+                    raise TimeoutError("LLM runtime budget exhausted before generator stage.")
                 prompt = _build_generator_prompt(snapshot, stage_input, active_policy)
                 payload = self.model_provider.chat_json(
                     route=self.model_config.generator,
                     system_prompt=GENERATOR_SYSTEM_PROMPT,
                     user_prompt=prompt,
+                    timeout_seconds=request_timeout,
                 )
                 candidates = payload.get("candidates", [])
                 if not isinstance(candidates, list) or not candidates:
@@ -903,7 +1071,12 @@ class ReplyRuntime:
                     raise ValueError("Generator produced empty candidate content.")
                 fallback_candidates = tuple(fallback_runner(stage_input))
                 return _ensure_distinct_generated_candidates(drafts, fallback_candidates)
-            except Exception:
+            except Exception as exc:
+                self._note_stage_fallback(
+                    "generator",
+                    "llm_fallback",
+                    f"generator route failed; deterministic fallback used: {exc}",
+                )
                 return fallback_runner(stage_input)
 
         return runner
@@ -918,6 +1091,9 @@ class ReplyRuntime:
             try:
                 results = []
                 for candidate in stage_input.generated_candidates:
+                    request_timeout = self._request_timeout_seconds()
+                    if request_timeout is not None and request_timeout <= 0:
+                        raise TimeoutError("LLM runtime budget exhausted during refiner stage.")
                     prompt = _build_refiner_prompt(
                         snapshot,
                         stage_input,
@@ -928,6 +1104,7 @@ class ReplyRuntime:
                         route=self.model_config.refiner,
                         system_prompt=REFINER_SYSTEM_PROMPT,
                         user_prompt=prompt,
+                        timeout_seconds=request_timeout,
                     )
                     refined_text = _normalize_llm_text(payload.get("content"))
                     if not refined_text:
@@ -960,7 +1137,12 @@ class ReplyRuntime:
                         results.append(fallback)
                         seen.add(fallback.parent_candidate_id)
                 return tuple(results)
-            except Exception:
+            except Exception as exc:
+                self._note_stage_fallback(
+                    "refiner",
+                    "llm_fallback",
+                    f"refiner route failed; deterministic fallback used: {exc}",
+                )
                 return fallback_runner(stage_input)
 
         return runner
@@ -973,11 +1155,15 @@ class ReplyRuntime:
     ):
         def runner(stage_input: EvaluatorExecutionInput):
             try:
+                request_timeout = self._request_timeout_seconds()
+                if request_timeout is not None and request_timeout <= 0:
+                    raise TimeoutError("LLM runtime budget exhausted before evaluator stage.")
                 prompt = _build_evaluator_prompt(snapshot, stage_input, active_policy)
                 payload = self.model_provider.chat_json(
                     route=self.model_config.evaluator,
                     system_prompt=EVALUATOR_SYSTEM_PROMPT,
                     user_prompt=prompt,
+                    timeout_seconds=request_timeout,
                 )
                 evaluations = payload.get("evaluations", [])
                 if not isinstance(evaluations, list) or not evaluations:
@@ -1025,7 +1211,12 @@ class ReplyRuntime:
                         results.append(fallback)
                         seen.add(fallback.candidate_id)
                 return tuple(results)
-            except Exception:
+            except Exception as exc:
+                self._note_stage_fallback(
+                    "evaluator",
+                    "llm_fallback",
+                    f"evaluator route failed; deterministic fallback used: {exc}",
+                )
                 return fallback_runner(stage_input)
 
         return runner
@@ -1046,6 +1237,95 @@ class ReplyRuntime:
                 f"{self.model_config.evaluator.provider}:{self.model_config.evaluator.model}"
             ),
         }
+
+    def _start_runtime_diagnostics(self) -> dict[str, Any]:
+        if hasattr(self.model_provider, "reset_request_diagnostics"):
+            self.model_provider.reset_request_diagnostics()
+        overall_budget_seconds = self._overall_llm_budget_seconds()
+        diagnostics = {
+            "provider": self.model_config.provider,
+            "configured_provider": self.config_resolution.get("configured_provider"),
+            "effective_provider": self.config_resolution.get("effective_provider", self.model_config.provider),
+            "provider_fallback": {
+                "applied": bool(self.config_resolution.get("fallback_applied")),
+                "reason": self.config_resolution.get("reason"),
+            },
+            "degraded_route_mode": "generator_only"
+            if self.config_resolution.get("fallback_applied")
+            else "full_pipeline",
+            "stage_timings": {},
+            "provider_diagnostics": [],
+            "fallbacks": [],
+            "model_routes": self._model_routes(),
+            "budget": {
+                "overall_llm_budget_seconds": overall_budget_seconds,
+                "per_request_timeout_seconds": self._per_request_timeout_seconds(),
+            },
+        }
+        diagnostics["_started_perf"] = perf_counter()
+        self._active_runtime_diagnostics = diagnostics
+        return diagnostics
+
+    def _provider_request_diagnostics(self) -> tuple[dict[str, Any], ...]:
+        if hasattr(self.model_provider, "get_request_diagnostics"):
+            return tuple(self.model_provider.get_request_diagnostics())
+        return ()
+
+    def _instrument_stage_runner(self, stage_name: str, runner):
+        def wrapped(stage_input):
+            started_perf = perf_counter()
+            try:
+                return runner(stage_input)
+            finally:
+                if self._active_runtime_diagnostics is not None:
+                    self._active_runtime_diagnostics["stage_timings"][f"{stage_name}_stage_ms"] = _elapsed_ms(started_perf)
+        return wrapped
+
+    def _note_stage_fallback(self, stage_name: str, reason: str, detail: str) -> None:
+        if self._active_runtime_diagnostics is None:
+            return
+        self._active_runtime_diagnostics.setdefault("fallbacks", []).append({
+            "stage": stage_name,
+            "reason": reason,
+            "detail": detail,
+        })
+
+    def _overall_llm_budget_seconds(self) -> float:
+        raw = os.environ.get("TRINITY_REPLY_RUNTIME_LLM_BUDGET_SECONDS", "").strip()
+        if raw:
+            try:
+                return max(1.0, min(float(raw), 240.0))
+            except ValueError:
+                pass
+        return min(self.model_config.timeout_seconds, 36.0)
+
+    def _per_request_timeout_seconds(self) -> float:
+        raw = os.environ.get("TRINITY_REPLY_RUNTIME_REQUEST_TIMEOUT_SECONDS", "").strip()
+        if raw:
+            try:
+                return max(1.0, min(float(raw), 120.0))
+            except ValueError:
+                pass
+        return min(self.model_config.timeout_seconds, 12.0)
+
+    def _remaining_llm_budget_seconds(self) -> float | None:
+        diagnostics = self._active_runtime_diagnostics
+        if diagnostics is None:
+            return None
+        started_perf = diagnostics.get("_started_perf")
+        if not isinstance(started_perf, (int, float)):
+            return None
+        remaining = self._overall_llm_budget_seconds() - (perf_counter() - float(started_perf))
+        return max(0.0, remaining)
+
+    def _request_timeout_seconds(self) -> float | None:
+        remaining = self._remaining_llm_budget_seconds()
+        base_timeout = self._per_request_timeout_seconds()
+        if remaining is None:
+            return base_timeout
+        if remaining <= 0:
+            return 0.0
+        return max(0.5, min(base_timeout, remaining))
 
     def _model_route_details(self) -> dict[str, dict[str, Any]]:
         details = {
@@ -1754,6 +2034,66 @@ def _outcome_memory_summaries(
     return tuple(summaries)
 
 
+def _summarize_imported_runtime_knowledge(memory_context: Any) -> dict[str, Any] | None:
+    imported_records = []
+    for record in getattr(memory_context, "records", ()):
+        metadata = dict(getattr(record, "metadata", {}) or {})
+        if not _is_train_imported_runtime_record(metadata):
+            continue
+        imported_records.append((record, metadata))
+    if not imported_records:
+        return None
+
+    family_counts: dict[str, int] = {}
+    artifact_refs: list[str] = []
+    import_ids: list[str] = []
+    top_support: list[dict[str, Any]] = []
+    seen_artifact_refs: set[str] = set()
+    seen_import_ids: set[str] = set()
+    for record, metadata in imported_records:
+        candidate_family = str(metadata.get("candidate_family") or "unknown").strip() or "unknown"
+        family_counts[candidate_family] = family_counts.get(candidate_family, 0) + 1
+        artifact_ref = str(metadata.get("artifact_ref") or "").strip()
+        if artifact_ref and artifact_ref not in seen_artifact_refs:
+            seen_artifact_refs.add(artifact_ref)
+            artifact_refs.append(artifact_ref)
+        import_id = str(metadata.get("import_id") or "").strip()
+        if import_id and import_id not in seen_import_ids:
+            seen_import_ids.add(import_id)
+            import_ids.append(import_id)
+        if len(top_support) < 3:
+            top_support.append(
+                {
+                    "record_key": record.record_key,
+                    "family": candidate_family,
+                    "document_title": str(metadata.get("document_title") or "").strip() or None,
+                    "document_path": str(metadata.get("document_path") or "").strip() or None,
+                    "confidence": metadata.get("confidence"),
+                    "freshness_bucket": str(metadata.get("freshness_bucket") or "").strip() or None,
+                }
+            )
+    return {
+        "imported_record_count": len(imported_records),
+        "family_counts": family_counts,
+        "artifact_refs": artifact_refs,
+        "import_ids": import_ids,
+        "top_support": top_support,
+    }
+
+
+def _is_train_imported_runtime_record(metadata: dict[str, Any]) -> bool:
+    source = str(metadata.get("source") or "").strip().lower()
+    import_id = str(metadata.get("import_id") or "").strip()
+    artifact_ref = str(metadata.get("artifact_ref") or "").strip()
+    candidate_family = str(metadata.get("candidate_family") or "").strip()
+    return bool(
+        source == "train-runtime-candidate"
+        or import_id
+        or artifact_ref
+        or candidate_family.startswith("runtime-")
+    )
+
+
 def _outcome_memory_family(
     disposition: DraftOutcomeDisposition,
 ) -> MemoryRecordFamily | None:
@@ -1774,6 +2114,151 @@ def _outcome_memory_family(
     }:
         return MemoryRecordFamily.ANTI_PATTERN
     return None
+
+
+def _historical_cycle_payload_from_outcome(event: DraftOutcomeEvent) -> dict[str, Any]:
+    candidate_id = str(event.candidate_id or uuid4())
+    occurred_at = event.occurred_at
+    contact_handle = str(event.thread_ref).split(":")[2:] or [""]
+    recipient_handle = ":".join(contact_handle).strip() or "historical-contact"
+    draft_text = (
+        (event.original_draft_text or event.final_text or "").strip()
+        or "Historical reply outcome."
+    )
+    final_text = (event.final_text or event.original_draft_text or "").strip() or draft_text
+    synthetic_evidence_id = str(uuid4())
+    return {
+        "cycle_id": str(event.cycle_id),
+        "exported_at": occurred_at.isoformat(),
+        "snapshot_hash": f"historical:{event.cycle_id}",
+        "thread_snapshot": {
+            "company_id": str(event.company_id),
+            "thread_ref": event.thread_ref,
+            "channel": event.channel,
+            "contact_handle": recipient_handle,
+            "latest_inbound_text": "[historical outcome replay without original prompt]",
+            "requested_at": occurred_at.isoformat(),
+            "messages": [],
+            "context_snippets": [],
+            "golden_examples": [],
+            "metadata": {
+                "historical_outcome_backfill": "true",
+                "source": "reply_draft_learning_events",
+            },
+            "contract_version": REPLY_CONTRACT_VERSION,
+        },
+        "evidence_units": [],
+        "candidates": [
+            {
+                "company_id": str(event.company_id),
+                "candidate_id": candidate_id,
+                "candidate_type": CandidateType.ACTION.value,
+                "state": CandidateState.DELIVERED.value,
+                "title": final_text[:80] or "Historical reply outcome",
+                "content": final_text,
+                "lineage": {
+                    "version_family_id": str(uuid4()),
+                    "parent_candidate_id": None,
+                    "source_evidence_ids": [synthetic_evidence_id],
+                    "source_candidate_ids": [],
+                },
+                "scores": {
+                    "impact": 5,
+                    "confidence": 5,
+                    "ease": 5,
+                    "quality_score": None,
+                    "urgency_score": None,
+                    "freshness_score": None,
+                    "feedback_score": 0.0,
+                    "audit_flags": [],
+                    "calibration_notes": [],
+                },
+                "created_at": occurred_at.isoformat(),
+                "updated_at": occurred_at.isoformat(),
+                "last_delivered_at": occurred_at.isoformat(),
+                "evaluated_at": occurred_at.isoformat(),
+                "evaluation_reason": "historical outcome backfill",
+            }
+        ],
+        "frontier_candidate_ids": [candidate_id],
+        "ranked_draft_set": {
+            "cycle_id": str(event.cycle_id),
+            "thread_ref": event.thread_ref,
+            "channel": event.channel,
+            "generated_at": occurred_at.isoformat(),
+            "drafts": [
+                {
+                    "company_id": str(event.company_id),
+                    "candidate_id": candidate_id,
+                    "thread_ref": event.thread_ref,
+                    "recipient_handle": recipient_handle,
+                    "channel": event.channel,
+                    "rank": 1,
+                    "draft_text": draft_text,
+                    "rationale": "historical outcome backfill",
+                    "risk_flags": [],
+                    "delivery_eligible": True,
+                    "scores": {
+                        "impact": 5,
+                        "confidence": 5,
+                        "ease": 5,
+                        "quality_score": None,
+                        "urgency_score": None,
+                        "freshness_score": None,
+                        "feedback_score": 0.0,
+                        "audit_flags": [],
+                        "calibration_notes": [],
+                    },
+                    "source_evidence_ids": [synthetic_evidence_id],
+                    "candidate_type": CandidateType.ACTION.value,
+                    "contract_version": REPLY_CONTRACT_VERSION,
+                }
+            ],
+            "accepted_artifact_version": {
+                "artifact_key": ARTIFACT_KEY,
+                "version": f"{ARTIFACT_VERSION}.historical",
+                "source_project": ARTIFACT_SOURCE_PROJECT,
+                "accepted_at": occurred_at.isoformat(),
+            },
+            "trace_ref": None,
+            "runtime_diagnostics": {
+                "historical_outcome_backfill": True,
+            },
+            "contract_version": REPLY_CONTRACT_VERSION,
+        },
+        "accepted_artifact_version": {
+            "artifact_key": ARTIFACT_KEY,
+            "version": f"{ARTIFACT_VERSION}.historical",
+            "source_project": ARTIFACT_SOURCE_PROJECT,
+            "accepted_at": occurred_at.isoformat(),
+        },
+        "policy_resolution": {
+            "requested_company_id": str(event.company_id),
+            "requested_channel": event.channel,
+            "matched_scope_kind": "historical_outcome_backfill",
+            "matched_scope_value": None,
+            "matched_policy_version": f"{ARTIFACT_VERSION}.historical",
+            "resolution_path": ["historical_outcome_backfill:synthetic-cycle"],
+            "considered_scopes": [],
+        },
+        "stage_evidence_anchors": [
+            {
+                "stage_name": "historical_outcome_backfill",
+                "anchor_kind": "synthetic",
+                "evidence_ids": [synthetic_evidence_id],
+                "content_hashes": [hashlib.sha256(final_text.encode("utf-8")).hexdigest()],
+            }
+        ],
+        "feedback_events": [],
+        "model_routes": {},
+        "model_route_details": {},
+        "runtime_memory_context": {"historical_outcome_backfill": True},
+        "runtime_memory_profile": {},
+        "runtime_loop_decision": {},
+        "runtime_hitl_escalation": {},
+        "runtime_score_audit": {},
+        "contract_version": REPLY_CONTRACT_VERSION,
+    }
 
 
 def _human_resolution_summary_text(
@@ -2148,3 +2633,7 @@ def _score_tuples_from_trace_payload(payload: dict[str, Any]) -> tuple[tuple[int
                 )
             )
     return tuple(tuples)
+
+
+def _elapsed_ms(started_perf: float) -> float:
+    return round((perf_counter() - started_perf) * 1000, 3)

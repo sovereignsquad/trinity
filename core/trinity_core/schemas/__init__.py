@@ -1,4 +1,4 @@
-"""Schema contracts for Trinity runtime artifacts."""
+"""Schema contracts for Trinity runtime, adapter, governance, and export artifacts."""
 
 from .candidate import (
     CandidateLineage,
@@ -120,6 +120,20 @@ from .policy import (
     reply_behavior_policy_from_payload,
     select_reply_behavior_policy,
 )
+from .portable_exports import (
+    PORTABLE_EXPORT_CONTRACT_VERSION,
+    DeltaExportEnvelope,
+    MemoryExportEnvelope,
+    MemoryExportRecord,
+    OutcomeExportEnvelope,
+    OutcomeExportRecord,
+    PortableExportFamily,
+    PortableExportIntegrity,
+    PortableExportLineage,
+    PortableExportManifestEntry,
+    SourceExportEnvelope,
+    SourceExportRecord,
+)
 from .post_training import (
     POST_TRAINING_DATASET_CONTRACT_VERSION,
     PostTrainingAnnotationStatus,
@@ -138,6 +152,13 @@ from .prepared_drafts import (
     PreparedDraftRefreshCandidate,
     PreparedDraftRefreshPlan,
     PreparedDraftSet,
+)
+from .runtime_candidates import (
+    RUNTIME_CANDIDATE_IMPORT_CONTRACT_VERSION,
+    RuntimeCandidateFamily,
+    RuntimeCandidateImportBundle,
+    RuntimeCandidateRecord,
+    RuntimeCandidateState,
 )
 from .runtime_decision import (
     ConfidenceBundle,
@@ -243,6 +264,7 @@ __all__ = [
     "PreparedDraftSet",
     "PreparedDraftRefreshCandidate",
     "PreparedDraftRefreshPlan",
+    "RUNTIME_CANDIDATE_IMPORT_CONTRACT_VERSION",
     "RelationshipProfile",
     "RetrievalChunk",
     "SelfProfile",
@@ -251,6 +273,11 @@ __all__ = [
     "BundleNegativeCandidate",
     "PolicyResolutionCandidate",
     "PolicyResolutionSummary",
+    "PORTABLE_EXPORT_CONTRACT_VERSION",
+    "PortableExportFamily",
+    "PortableExportIntegrity",
+    "PortableExportLineage",
+    "PortableExportManifestEntry",
     "ReplyDraftCandidate",
     "ReplyBehaviorPolicy",
     "ReplyBehaviorScopeKind",
@@ -274,6 +301,10 @@ __all__ = [
     "RetrievedMemoryContext",
     "RetrievedMemoryRecord",
     "ReplyTonePreferences",
+    "RuntimeCandidateFamily",
+    "RuntimeCandidateImportBundle",
+    "RuntimeCandidateRecord",
+    "RuntimeCandidateState",
     "ConfidenceBundle",
     "ConsensusDecision",
     "HumanEscalation",
@@ -295,6 +326,13 @@ __all__ = [
     "ThreadSnapshot",
     "TrainingBundle",
     "TrainingBundleType",
+    "SourceExportEnvelope",
+    "SourceExportRecord",
+    "OutcomeExportEnvelope",
+    "OutcomeExportRecord",
+    "MemoryExportEnvelope",
+    "MemoryExportRecord",
+    "DeltaExportEnvelope",
     "gobii_tracked_entity_enrichment_bundle_from_payload",
     "gobii_tracked_entity_enrichment_request_from_payload",
     "reply_behavior_policy_from_payload",

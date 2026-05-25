@@ -116,8 +116,8 @@ The current app package is defined in [apps/macos/Package.swift](/Users/Shared/P
 The native shell now includes a Settings scene plus an in-app Admin page for machine-local runtime administration:
 
 - foundation policy editing
-- Reply runtime model config editing
-- Spot runtime model config editing
+- adapter model config editing for the adapters currently represented in the shipped foundation-policy contract
+- adapter discovery visibility for additional locally present adapters that do not yet have dedicated settings panels
 
 ## 6. Optional Provider Setup
 
@@ -248,6 +248,8 @@ See:
 - [docs/GOBII_RECURRING_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_RECURRING_WORKFLOW.md)
 - [docs/GOBII_NORMALIZATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/GOBII_NORMALIZATION_CONTRACT.md)
 - [docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md)
+- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
+- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
 
 Important credential distinction:
 

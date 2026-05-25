@@ -1,4 +1,4 @@
-"""Filesystem-backed storage for adapter-scoped Trinity runtime cycles."""
+"""Filesystem-backed storage for adapter-scoped Trinity runtime cycles and bundle artifacts."""
 
 from __future__ import annotations
 
@@ -115,6 +115,22 @@ class RuntimeCycleStore:
             json.loads(path.read_text(encoding="utf-8"))
             for path in paths[: max(0, limit)]
         )
+
+    def list_export_payloads(
+        self,
+        company_id: UUID | str,
+    ) -> tuple[dict[str, Any], ...]:
+        export_dir = self._company_dir(company_id) / "exports"
+        paths = sorted(export_dir.glob("*.json"))
+        return tuple(json.loads(path.read_text(encoding="utf-8")) for path in paths)
+
+    def list_cycle_payloads(
+        self,
+        company_id: UUID | str,
+    ) -> tuple[dict[str, Any], ...]:
+        cycle_dir = self._company_dir(company_id) / "cycles"
+        paths = sorted(cycle_dir.glob("*.json"))
+        return tuple(json.loads(path.read_text(encoding="utf-8")) for path in paths)
 
     def _company_dir(self, company_id: UUID | str) -> Path:
         companies_dir = self.paths.companies_dir or (self.paths.root_dir / "companies")

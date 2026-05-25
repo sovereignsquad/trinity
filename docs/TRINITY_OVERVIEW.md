@@ -46,6 +46,13 @@ Current adapter support:
 - `reply`
 - `spot` as a bounded reasoning/review slice
 
+Current native shell support:
+
+- adapter-aware governance inspection
+- machine-local foundation policy editing
+- machine-local adapter model-config editing for the adapters represented in the shipped policy schema
+- visibility into additional discovered local adapters without silently hiding them
+
 Current governance support:
 
 - acceptance gating from score-health artifacts
@@ -82,6 +89,9 @@ Adapter-facing contracts currently live in:
 - adapter helpers: [core/trinity_core/adapters](/Users/Shared/Projects/trinity/core/trinity_core/adapters)
 - CLI: [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
 - storage helpers: [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
+- native shell adapter catalog: [apps/macos/Sources/TrinityApp/AdapterCatalog.swift](/Users/Shared/Projects/trinity/apps/macos/Sources/TrinityApp/AdapterCatalog.swift)
+- native shell settings surface: [apps/macos/Sources/TrinityApp/AdminSettingsSurface.swift](/Users/Shared/Projects/trinity/apps/macos/Sources/TrinityApp/AdminSettingsSurface.swift)
+- native shell governance surface: [apps/macos/Sources/TrinityApp/GovernanceSurface.swift](/Users/Shared/Projects/trinity/apps/macos/Sources/TrinityApp/GovernanceSurface.swift)
 
 ## Operational Direction
 
@@ -102,7 +112,7 @@ What remains:
 - generalize shared abstractions only where two adapters require them
 - keep the Reply policy/train lane explicit until another adapter actually needs a shared promotion contract
 - keep new downstream apps on their own adapter seams rather than stretching Reply semantics
-- surface governance state directly in operator-facing status and review surfaces instead of requiring separate artifact inspection
+- continue surfacing governance state directly in operator-facing status and review surfaces instead of requiring separate artifact inspection
 - keep the public docs aligned with the actual CLI surface and machine-readable status contracts
 
 ## New App Rule

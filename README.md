@@ -9,9 +9,17 @@ Current release:
 - `0.1.4`
 - [CHANGELOG.md](/Users/Shared/Projects/trinity/CHANGELOG.md)
 
+Quick entrypoints:
+
+- installation: [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+- user guide: [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
+- settings and local policy/config: [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
+- CLI and runtime API surface: [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
+
 Current system split:
 
 - `{trinity}` owns runtime workflow, ranking, trace export, training-bundle export, and accepted-artifact application
+- `{trinity}` now also owns explicit portable source, outcome, memory, and delta exports for `{train}` pack builds
 - `{trinity}` owns live memory retrieval, disagreement handling, bounded rework loops, and Human-in-the-Loop escalation contracts
 - product repositories own ingestion, operator workflow, transport rules, approval semantics, and send execution
 - `{train}` owns offline bounded optimization of exported `{trinity}` artifacts
@@ -28,11 +36,12 @@ Implemented today:
 - generic runtime facade in [core/trinity_core/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/runtime.py)
 - adapter-scoped storage helpers in [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
 - generic CLI surface in [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
-- first mature drafting adapter for `{reply}`
+- first mature downstream drafting adapter for `{reply}`
 - one bounded reasoning adapter slice for `{spot}`
 - explicit score-governance lifecycle across acceptance, release readiness, triage queues, triage resolution, and release-decision lineage
+- native macOS operator shell with adapter-aware governance inspection and machine-local settings administration
 
-Current restoration focus:
+Current focus:
 
 - keep `{reply}` stable as the first production embedding without letting it define the platform identity
 - restore `{trinity}` as the proper core system around active memory, minority reports, bounded loop control, and HiTL
@@ -116,6 +125,12 @@ Preferred generic commands:
 - `schedule-prepared-draft-refresh --adapter <adapter> --company-id <company>`
 - `export-trace --adapter <adapter>`
 - `export-training-bundle --adapter <adapter>`
+- `build-source-export --adapter <adapter>`
+- `build-outcome-export --adapter <adapter>`
+- `build-memory-export --adapter <adapter>`
+- `build-delta-export --adapter <adapter>`
+- `inspect-export-metadata --adapter <adapter>`
+- `validate-export-lineage --adapter <adapter>`
 - `runtime-status --adapter <adapter>`
 - `show-foundation-policy`
 - `foundation-check --adapter <adapter>`
@@ -202,6 +217,7 @@ Policy acceptance note:
 - score-governance can now block acceptance and release deterministically unless an operator records an explicit override
 - policy promotion now also runs a bundled foundation preflight unless an operator records an explicit bypass note
 - exported training bundles now preserve negative samples and policy-resolution context so `{train}` can learn from bounded runtime artifacts without silently reinterpreting the whole trace
+- the new portable export seam is the governed producer path for full `{train}` pack builds and is distinct from the older bounded training-bundle export
 - the current runtime, policy, Train handoff, and shadow-fixture lanes are intentionally centered on the `{reply} <-> {trinity} <-> {train}` workflow
 
 Current machine-local hardening baseline:
@@ -213,8 +229,9 @@ Current machine-local hardening baseline:
 
 Native admin settings:
 
-- the macOS app now includes a native Admin surface and Settings scene for editing the machine-local foundation policy plus active Reply/Spot runtime model config
+- the macOS app now includes a native Admin surface and Settings scene for editing the machine-local foundation policy and active adapter model config
 - that surface writes the same machine-local JSON used by the CLI rather than introducing a second config path
+- the shell discovers locally present adapters through a shared catalog and exposes dedicated editable settings panels for the adapters currently modeled by the foundation-policy contract
 
 ## Runtime Storage
 
@@ -236,6 +253,9 @@ Reply compatibility behavior:
 Local install and dependency setup:
 
 - [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
+- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
+- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
 
 Bootstrap:
 
@@ -311,6 +331,9 @@ Do not:
 - [docs/RELATIONSHIP_HARDENING_PLAN.md](/Users/Shared/Projects/trinity/docs/RELATIONSHIP_HARDENING_PLAN.md)
 - [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
 - [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
+- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
+- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
 - [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)
 - [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
 - [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)

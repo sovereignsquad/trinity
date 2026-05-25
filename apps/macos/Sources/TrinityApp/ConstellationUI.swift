@@ -1,6 +1,14 @@
 import AppKit
 import SwiftUI
 
+enum TrinityMetrics {
+    static let pagePadding: CGFloat = 24
+    static let sectionSpacing: CGFloat = 20
+    static let panelSpacing: CGFloat = 14
+    static let panelPadding: CGFloat = 18
+    static let panelCornerRadius: CGFloat = 20
+}
+
 enum TrinityPalette {
     static let chrome = adaptiveTrinityColor(light: NSColor(red: 0.99, green: 0.96, blue: 0.95, alpha: 1), dark: NSColor(red: 0.08, green: 0.05, blue: 0.06, alpha: 1))
     static let canvas = adaptiveTrinityColor(light: NSColor(red: 0.97, green: 0.94, blue: 0.93, alpha: 1), dark: NSColor(red: 0.10, green: 0.08, blue: 0.09, alpha: 1))
@@ -55,13 +63,13 @@ struct TrinityShell<Content: View>: View {
 struct TrinityPanelModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .padding(18)
+            .padding(TrinityMetrics.panelPadding)
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: TrinityMetrics.panelCornerRadius, style: .continuous)
                     .fill(TrinityPalette.panel)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: TrinityMetrics.panelCornerRadius, style: .continuous)
                     .stroke(TrinityPalette.border, lineWidth: 1)
             )
             .shadow(color: Color.black.opacity(0.08), radius: 18, x: 0, y: 12)
@@ -86,5 +94,116 @@ struct TrinityStatusPill: View {
             .padding(.vertical, 4)
             .background(color.opacity(0.12))
             .clipShape(Capsule())
+    }
+}
+
+struct TrinitySectionHeader: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(TrinityPalette.textPrimary)
+            Text(subtitle)
+                .foregroundStyle(TrinityPalette.textSecondary)
+        }
+    }
+}
+
+struct TrinityInlineBanner: View {
+    let title: String
+    let bodyText: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(color)
+            Text(bodyText)
+                .font(.subheadline)
+                .foregroundStyle(TrinityPalette.textSecondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.08))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(color.opacity(0.28), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+struct TrinityEmptyState: View {
+    let title: String
+    let bodyText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(TrinityPalette.textPrimary)
+            Text(bodyText)
+                .foregroundStyle(TrinityPalette.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(TrinityPalette.panelAlt.opacity(0.55))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+struct TrinityLoadingState: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+            Text(title)
+                .foregroundStyle(TrinityPalette.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(TrinityPalette.panelAlt.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+struct TrinityFormField<Control: View>: View {
+    let label: String
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(TrinityPalette.textPrimary)
+            control
+        }
+    }
+}
+
+struct TrinityPathBadge: View {
+    let label: String
+    let path: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(TrinityPalette.textPrimary)
+            Text(path)
+                .font(.caption2)
+                .foregroundStyle(TrinityPalette.textSecondary)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(TrinityPalette.panelAlt.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

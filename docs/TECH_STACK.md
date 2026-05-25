@@ -56,5 +56,8 @@ That means:
 ## Install Notes
 
 - the base runtime install path is documented in [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
+- operator usage is summarized in [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
+- machine-local settings are summarized in [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
+- the public runtime and CLI surface is summarized in [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
 - `ollama` and `mistral-cli` are optional provider dependencies, not required for a fresh deterministic install
 - Gobii credentials and connectivity are optional and only required for the bounded external browser-agent seams

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,9 @@ from trinity_core.ops.runtime_storage import resolve_adapter_runtime_paths
 DEFAULT_TRINITY_GENERATOR_MODEL = "granite4:350m"
 DEFAULT_TRINITY_REFINER_MODEL = "mistral:latest"
 DEFAULT_TRINITY_EVALUATOR_MODEL = "qwen2.5:7b"
+DEFAULT_TRINITY_FALLBACK_OLLAMA_GENERATOR_MODEL = "granite4:350m"
+DEFAULT_TRINITY_FALLBACK_OLLAMA_REFINER_MODEL = "llama3.2:1b"
+DEFAULT_TRINITY_FALLBACK_OLLAMA_EVALUATOR_MODEL = "llama3.2:1b"
 
 
 @dataclass(frozen=True)
@@ -209,6 +212,25 @@ def load_model_config(adapter_name: str) -> TrinityModelConfig:
     )
 
 
+def resolve_runtime_model_config(config: TrinityModelConfig) -> tuple[TrinityModelConfig, dict[str, Any]]:
+    provider = str(config.provider or "").strip().lower()
+    resolution = {
+        "configured_provider": provider or "deterministic",
+        "effective_provider": provider or "deterministic",
+        "fallback_applied": False,
+        "reason": None,
+    }
+    if provider == "mistral-cli" and not _mistral_cli_available():
+        fallback = _build_ollama_fallback_config(config)
+        resolution.update({
+            "effective_provider": fallback.provider,
+            "fallback_applied": True,
+            "reason": "mistral_cli_unavailable",
+        })
+        return fallback, resolution
+    return config, resolution
+
+
 def config_path() -> Path:
     return config_path_for_adapter(REPLY_ADAPTER_NAME)
 
@@ -396,3 +418,45 @@ def _derive_model_id_from_inventory(*, provider: str, model: str) -> str | None:
     inventory = load_model_inventory(repo_root=Path(__file__).resolve().parents[3])
     entry = inventory.find_for_route(provider=provider, route_model=model)
     return entry.model_id if entry is not None else None
+
+
+def _mistral_cli_available() -> bool:
+    api_key = str(os.environ.get("MISTRAL_API_KEY") or "").strip()
+    return bool(api_key)
+
+
+def _build_ollama_fallback_config(config: TrinityModelConfig) -> TrinityModelConfig:
+    generator_model = str(
+        os.environ.get("TRINITY_FALLBACK_OLLAMA_GENERATOR_MODEL")
+        or DEFAULT_TRINITY_FALLBACK_OLLAMA_GENERATOR_MODEL
+    ).strip()
+    refiner_model = str(
+        os.environ.get("TRINITY_FALLBACK_OLLAMA_REFINER_MODEL")
+        or DEFAULT_TRINITY_FALLBACK_OLLAMA_REFINER_MODEL
+    ).strip()
+    evaluator_model = str(
+        os.environ.get("TRINITY_FALLBACK_OLLAMA_EVALUATOR_MODEL")
+        or DEFAULT_TRINITY_FALLBACK_OLLAMA_EVALUATOR_MODEL
+    ).strip()
+    return replace(
+        config,
+        provider="ollama",
+        generator=replace(
+            config.generator,
+            provider="ollama",
+            model=generator_model,
+            model_id=_derive_model_id_from_inventory(provider="ollama", model=generator_model),
+        ),
+        refiner=replace(
+            config.refiner,
+            provider="ollama",
+            model=refiner_model,
+            model_id=_derive_model_id_from_inventory(provider="ollama", model=refiner_model),
+        ),
+        evaluator=replace(
+            config.evaluator,
+            provider="ollama",
+            model=evaluator_model,
+            model_id=_derive_model_id_from_inventory(provider="ollama", model=evaluator_model),
+        ),
+    )

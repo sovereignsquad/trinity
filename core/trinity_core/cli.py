@@ -37,6 +37,7 @@ from trinity_core.model_config import (
     TrinityRoleRoute,
     config_path_for_adapter,
     load_model_config_for_adapter,
+    resolve_runtime_model_config,
     save_model_config_for_adapter,
 )
 from trinity_core.ops import (
@@ -72,6 +73,8 @@ from trinity_core.ops import (
     deterministic_route_set,
     evaluate_score_governance,
     gobii_task_normalization_request_from_payload,
+    inspect_portable_export,
+    inspect_runtime_candidate_import,
     load_control_plane_job,
     load_eval_dataset,
     load_eval_replay_report,
@@ -143,6 +146,10 @@ from trinity_core.ops import (
     summarize_score_governance_triage_report,
     summarize_score_health_report,
     summarize_score_health_trend_report,
+    validate_portable_export_lineage,
+)
+from trinity_core.ops import (
+    adopt_runtime_candidate_import as adopt_runtime_candidate_import_op,
 )
 from trinity_core.ops.cycle_store import RuntimeCycleStore, dataclass_payload
 from trinity_core.ops.foundation_policy import (
@@ -159,6 +166,7 @@ from trinity_core.runtime import TrinityRuntime
 from trinity_core.schemas import (
     AcceptedArtifactVersion,
     GobiiTaskCreateRequest,
+    PortableExportFamily,
     PostTrainingAnnotationStatus,
     PostTrainingDatasetStatus,
     PostTrainingPurpose,
@@ -235,6 +243,29 @@ def main(argv: list[str] | None = None) -> int:
         _write_json(result)
         return 0
 
+    if command == "record-outcomes-batch":
+        payload = _load_json(args.input_file)
+        items = _batch_items_from_payload(payload)
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        runtime = get_runtime()
+        for index, item in enumerate(items):
+            try:
+                result = runtime.record_outcome(outcome_event_from_payload(item))
+                results.append({"index": index, "cycle_id": str(item.get("cycle_id") or ""), "result": result})
+            except Exception as exc:  # pragma: no cover - exercised by live operator paths
+                errors.append({"index": index, "cycle_id": str(item.get("cycle_id") or ""), "message": str(exc)})
+        _write_json(
+            {
+                "status": "ok" if not errors else "partial",
+                "processed_count": len(results),
+                "error_count": len(errors),
+                "results": results,
+                "errors": errors,
+            }
+        )
+        return 0
+
     if command == "record-spot-review-outcome":
         _require_spot_adapter(adapter_name, command)
         payload = _load_json(args.input_file)
@@ -248,10 +279,56 @@ def main(argv: list[str] | None = None) -> int:
         _write_json(result)
         return 0
 
+    if command == "ingest-memory-events-batch":
+        payload = _load_json(args.input_file)
+        items = _batch_items_from_payload(payload)
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        runtime = get_runtime()
+        for index, item in enumerate(items):
+            try:
+                result = runtime.ingest_memory_event(memory_event_from_payload(item))
+                results.append({"index": index, "source_ref": str(item.get("source_ref") or ""), "result": result})
+            except Exception as exc:  # pragma: no cover - exercised by live operator paths
+                errors.append({"index": index, "source_ref": str(item.get("source_ref") or ""), "message": str(exc)})
+        _write_json(
+            {
+                "status": "ok" if not errors else "partial",
+                "processed_count": len(results),
+                "error_count": len(errors),
+                "results": results,
+                "errors": errors,
+            }
+        )
+        return 0
+
     if command == "register-document":
         payload = _load_json(args.input_file)
         result = get_runtime().register_document(document_record_from_payload(payload))
         _write_json(result)
+        return 0
+
+    if command == "register-documents-batch":
+        payload = _load_json(args.input_file)
+        items = _batch_items_from_payload(payload)
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        runtime = get_runtime()
+        for index, item in enumerate(items):
+            try:
+                result = runtime.register_document(document_record_from_payload(item))
+                results.append({"index": index, "document_ref": str(item.get("document_ref") or ""), "result": result})
+            except Exception as exc:  # pragma: no cover - exercised by live operator paths
+                errors.append({"index": index, "document_ref": str(item.get("document_ref") or ""), "message": str(exc)})
+        _write_json(
+            {
+                "status": "ok" if not errors else "partial",
+                "processed_count": len(results),
+                "error_count": len(errors),
+                "results": results,
+                "errors": errors,
+            }
+        )
         return 0
 
     if command == "get-prepared-draft":
@@ -301,6 +378,103 @@ def main(argv: list[str] | None = None) -> int:
 
     if command == "export-trace":
         result = get_runtime().export_trace(UUID(args.cycle_id))
+        _write_json(result)
+        return 0
+
+    if command == "build-source-export":
+        _require_reply_adapter(adapter_name, command)
+        result = get_runtime().build_source_export(
+            company_id=args.company_id,
+            snapshot_ref=args.snapshot_ref,
+        )
+        _write_json(result)
+        return 0
+
+    if command == "build-outcome-export":
+        _require_reply_adapter(adapter_name, command)
+        result = get_runtime().build_outcome_export(
+            company_id=args.company_id,
+            snapshot_ref=args.snapshot_ref,
+        )
+        _write_json(result)
+        return 0
+
+    if command == "build-memory-export":
+        _require_reply_adapter(adapter_name, command)
+        result = get_runtime().build_memory_export(
+            company_id=args.company_id,
+            snapshot_ref=args.snapshot_ref,
+        )
+        _write_json(result)
+        return 0
+
+    if command == "build-delta-export":
+        _require_reply_adapter(adapter_name, command)
+        if not args.prior_snapshot_ref and not args.prior_export_id:
+            raise ValueError(
+                "build-delta-export requires --prior-snapshot-ref or --prior-export-id."
+            )
+        result = get_runtime().build_delta_export(
+            company_id=args.company_id,
+            cutoff_at=_parse_datetime(str(args.cutoff_at)),
+            snapshot_ref=str(args.snapshot_ref),
+            prior_snapshot_ref=args.prior_snapshot_ref,
+            prior_export_id=args.prior_export_id,
+        )
+        _write_json(result)
+        return 0
+
+    if command == "inspect-export-metadata":
+        _require_reply_adapter(adapter_name, command)
+        result = inspect_portable_export(
+            adapter_name=adapter_name,
+            company_id=args.company_id,
+            export_family=str(args.export_family),
+            export_id=str(args.export_id),
+        )
+        _write_json(result)
+        return 0
+
+    if command == "validate-export-lineage":
+        _require_reply_adapter(adapter_name, command)
+        result = validate_portable_export_lineage(
+            adapter_name=adapter_name,
+            company_id=args.company_id,
+            export_family=str(args.export_family),
+            export_id=str(args.export_id),
+        )
+        _write_json(result)
+        return 0 if result["valid"] else 2
+
+    if command == "import-runtime-candidate-pack":
+        _require_reply_adapter(adapter_name, command)
+        result = get_runtime().import_runtime_candidate_pack(
+            company_id=args.company_id,
+            manifest_path=args.manifest_file,
+            import_id=args.import_id,
+        )
+        _write_json(result)
+        return 0
+
+    if command == "inspect-runtime-candidate-import":
+        _require_reply_adapter(adapter_name, command)
+        result = inspect_runtime_candidate_import(
+            adapter_name=adapter_name,
+            company_id=args.company_id,
+            import_id=str(args.import_id),
+        )
+        _write_json(result)
+        return 0
+
+    if command == "adopt-runtime-candidate-import":
+        _require_reply_adapter(adapter_name, command)
+        result = adopt_runtime_candidate_import_op(
+            adapter_name=adapter_name,
+            company_id=args.company_id,
+            import_id=str(args.import_id),
+            min_confidence=float(args.min_confidence),
+            allow_conflicted=bool(args.allow_conflicted),
+        )
         _write_json(result)
         return 0
 
@@ -1443,7 +1617,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if command == "runtime-status":
-        config = load_model_config_for_adapter(adapter_name)
+        configured_config = load_model_config_for_adapter(adapter_name)
+        config, config_resolution = resolve_runtime_model_config(configured_config)
         foundation_policy = load_foundation_policy()
         shared_inventory_payload = _build_shared_model_inventory_payload()
         payload = {
@@ -1454,6 +1629,12 @@ def main(argv: list[str] | None = None) -> int:
             "config_path": str(config_path_for_adapter(adapter_name)),
             "adapter": adapter_name,
             "provider": config.provider,
+            "configured_provider": configured_config.provider,
+            "effective_provider": config.provider,
+            "provider_fallback": {
+                "applied": bool(config_resolution.get("fallback_applied")),
+                "reason": config_resolution.get("reason"),
+            },
             "llm_enabled": config.llm_enabled,
             "ollama_base_url": config.ollama_base_url,
             "mistral_cli_executable": config.mistral_cli_executable,
@@ -1493,11 +1674,9 @@ def main(argv: list[str] | None = None) -> int:
                 models = provider_runtime.model_provider.list_models()
                 installed_names = {str(item.get("name") or "").strip() for item in models}
                 inventory_supported = provider_runtime.model_provider.supports_model_inventory
-                payload["provider_status"] = (
-                    "online"
-                    if inventory_supported
-                    else "configured"
-                )
+                payload["provider_status"] = "online" if inventory_supported else "configured"
+                if payload["provider_fallback"]["applied"]:
+                    payload["provider_status"] = "fallback_online" if inventory_supported else "fallback_configured"
                 payload["provider_inventory_supported"] = inventory_supported
                 payload["available_models"] = list(models)
                 for role_name, route in (
@@ -1720,6 +1899,13 @@ def _build_generic_parsers(subparsers: Any) -> None:
     _add_adapter_argument(outcome_parser)
     outcome_parser.add_argument("--input-file")
 
+    outcome_batch_parser = subparsers.add_parser(
+        "record-outcomes-batch",
+        help="Persist a bounded batch of operator outcome events for prior runtime cycles.",
+    )
+    _add_adapter_argument(outcome_batch_parser)
+    outcome_batch_parser.add_argument("--input-file")
+
     spot_review_parser = subparsers.add_parser(
         "record-spot-review-outcome",
         help="Persist one human review outcome for a prior Spot reasoning cycle.",
@@ -1734,12 +1920,26 @@ def _build_generic_parsers(subparsers: Any) -> None:
     _add_adapter_argument(memory_event_parser)
     memory_event_parser.add_argument("--input-file")
 
+    memory_event_batch_parser = subparsers.add_parser(
+        "ingest-memory-events-batch",
+        help="Persist a bounded batch of normalized product memory events.",
+    )
+    _add_adapter_argument(memory_event_batch_parser)
+    memory_event_batch_parser.add_argument("--input-file")
+
     document_parser = subparsers.add_parser(
         "register-document",
         help="Register one product document with runtime-owned memory and retrieval state.",
     )
     _add_adapter_argument(document_parser)
     document_parser.add_argument("--input-file")
+
+    document_batch_parser = subparsers.add_parser(
+        "register-documents-batch",
+        help="Register a bounded batch of product documents with runtime-owned memory and retrieval state.",
+    )
+    _add_adapter_argument(document_batch_parser)
+    document_batch_parser.add_argument("--input-file")
 
     get_prepared_parser = subparsers.add_parser(
         "get-prepared-draft",
@@ -1790,6 +1990,94 @@ def _build_generic_parsers(subparsers: Any) -> None:
     )
     _add_adapter_argument(export_parser)
     export_parser.add_argument("--cycle-id", required=True)
+
+    source_export_parser = subparsers.add_parser(
+        "build-source-export",
+        help="Build one explicit versioned raw source export for Train portable packs.",
+    )
+    _add_adapter_argument(source_export_parser)
+    source_export_parser.add_argument("--company-id", required=True)
+    source_export_parser.add_argument("--snapshot-ref")
+
+    outcome_export_parser = subparsers.add_parser(
+        "build-outcome-export",
+        help="Build one explicit versioned outcome export for Train supervision corpora.",
+    )
+    _add_adapter_argument(outcome_export_parser)
+    outcome_export_parser.add_argument("--company-id", required=True)
+    outcome_export_parser.add_argument("--snapshot-ref")
+
+    memory_export_parser = subparsers.add_parser(
+        "build-memory-export",
+        help="Build one explicit versioned memory export for Train knowledge packs.",
+    )
+    _add_adapter_argument(memory_export_parser)
+    memory_export_parser.add_argument("--company-id", required=True)
+    memory_export_parser.add_argument("--snapshot-ref")
+
+    delta_export_parser = subparsers.add_parser(
+        "build-delta-export",
+        help="Build one explicit cutoff-linked delta export for Train delta packs.",
+    )
+    _add_adapter_argument(delta_export_parser)
+    delta_export_parser.add_argument("--company-id", required=True)
+    delta_export_parser.add_argument("--cutoff-at", required=True)
+    delta_export_parser.add_argument("--snapshot-ref", required=True)
+    delta_export_parser.add_argument("--prior-snapshot-ref")
+    delta_export_parser.add_argument("--prior-export-id")
+
+    inspect_export_parser = subparsers.add_parser(
+        "inspect-export-metadata",
+        help="Inspect persisted portable export metadata without scraping runtime storage.",
+    )
+    _add_adapter_argument(inspect_export_parser)
+    inspect_export_parser.add_argument("--company-id", required=True)
+    inspect_export_parser.add_argument(
+        "--export-family",
+        required=True,
+        choices=tuple(item.value for item in PortableExportFamily),
+    )
+    inspect_export_parser.add_argument("--export-id", required=True)
+
+    validate_export_parser = subparsers.add_parser(
+        "validate-export-lineage",
+        help="Validate tenant scope, cutoff, and lineage invariants for one portable export.",
+    )
+    _add_adapter_argument(validate_export_parser)
+    validate_export_parser.add_argument("--company-id", required=True)
+    validate_export_parser.add_argument(
+        "--export-family",
+        required=True,
+        choices=tuple(item.value for item in PortableExportFamily),
+    )
+    validate_export_parser.add_argument("--export-id", required=True)
+
+    import_runtime_candidate_parser = subparsers.add_parser(
+        "import-runtime-candidate-pack",
+        help="Stage one Train runtime-candidate pack into the governed Trinity import surface.",
+    )
+    _add_adapter_argument(import_runtime_candidate_parser)
+    import_runtime_candidate_parser.add_argument("--company-id", required=True)
+    import_runtime_candidate_parser.add_argument("--manifest-file", required=True)
+    import_runtime_candidate_parser.add_argument("--import-id")
+
+    inspect_runtime_candidate_parser = subparsers.add_parser(
+        "inspect-runtime-candidate-import",
+        help="Inspect one staged Train runtime-candidate import before runtime adoption.",
+    )
+    _add_adapter_argument(inspect_runtime_candidate_parser)
+    inspect_runtime_candidate_parser.add_argument("--company-id", required=True)
+    inspect_runtime_candidate_parser.add_argument("--import-id", required=True)
+
+    adopt_runtime_candidate_parser = subparsers.add_parser(
+        "adopt-runtime-candidate-import",
+        help="Adopt one staged Train runtime-candidate import into governed runtime memory and retrieval.",
+    )
+    _add_adapter_argument(adopt_runtime_candidate_parser)
+    adopt_runtime_candidate_parser.add_argument("--company-id", required=True)
+    adopt_runtime_candidate_parser.add_argument("--import-id", required=True)
+    adopt_runtime_candidate_parser.add_argument("--min-confidence", type=float, default=0.6)
+    adopt_runtime_candidate_parser.add_argument("--allow-conflicted", action="store_true")
 
     curate_eval_dataset_parser = subparsers.add_parser(
         "curate-eval-dataset",
@@ -2502,6 +2790,19 @@ def _load_json(input_file: str | None) -> dict[str, Any]:
     return json.load(sys.stdin)
 
 
+def _batch_items_from_payload(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict) and isinstance(payload.get("items"), list):
+        items = payload["items"]
+    else:
+        raise ValueError("Batch payload must be a JSON array or an object with an 'items' array.")
+    normalized = [item for item in items if isinstance(item, dict)]
+    if len(normalized) != len(items):
+        raise ValueError("Batch payload items must all be JSON objects.")
+    return normalized
+
+
 def _add_score_governance_acceptance_arguments(parser: Any) -> None:
     parser.add_argument("--score-health-report-file")
     parser.add_argument("--score-health-decision-file")
@@ -2742,8 +3043,10 @@ def _build_runtime_readiness_payload(payload: dict[str, Any]) -> dict[str, Any]:
         route = roles.get(role_name) if isinstance(roles, dict) else None
         installed = bool(route.get("installed")) if isinstance(route, dict) else False
         model_name = str(route.get("model") or "").strip() if isinstance(route, dict) else ""
-        ready = (not llm_enabled) or provider_status == "configured" or (
-            provider_status == "online" and installed
+        ready = (
+            (not llm_enabled)
+            or provider_status == "configured"
+            or (provider_status == "online" and installed)
         )
         role_readiness[role_name] = ready
         if llm_enabled and provider_status == "online" and model_name and not installed:

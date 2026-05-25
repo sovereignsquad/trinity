@@ -48,7 +48,8 @@ Focus on:
 
 - turning Reply snapshots into ranked drafts
 - persisting replayable cycle state
-- exporting bounded training bundles
+- exporting bounded training bundles when the policy-learning lane needs them
+- exporting explicit portable source, outcome, memory, and delta families for `{train}`
 - reviewing and accepting policy proposals with explicit provenance and holdout discipline
 
 ### `{train}`
@@ -68,9 +69,10 @@ The current end-to-end workflow is:
 2. `{trinity}` returns ranked drafts with artifact provenance.
 3. `{reply}` shows, selects, edits, sends, or rejects and records a deterministic outcome.
 4. `{trinity}` persists cycle state and can export bounded learning bundles.
-5. `{train}` consumes those bundles and proposes one explicit Reply behavior artifact.
-6. `{trinity}` reviews, optionally replays holdout bundles, and only then accepts or rejects the proposal.
-7. `{reply}` receives the effect only through later `{trinity}` runtime outputs, never by direct mutation from `{train}`.
+5. `{trinity}` can also export explicit portable source, outcome, memory, and delta families as the governed producer seam for full `{train}` pack builds.
+6. `{train}` consumes those bounded bundles or portable exports and proposes one explicit Reply behavior artifact.
+7. `{trinity}` reviews, optionally replays holdout bundles, and only then accepts or rejects the proposal.
+8. `{reply}` receives the effect only through later `{trinity}` runtime outputs, never by direct mutation from `{train}`.
 
 ## Canonical Contracts
 
@@ -85,6 +87,8 @@ The current end-to-end workflow is:
   - captures `cycle_id`, `candidate_id`, `final_text`, `edit_distance`, and `send_result`
 - `RuntimeTraceExport`
   - replayable `{trinity}` export for `{train}`
+- portable source, outcome, memory, and delta exports
+  - replayable governed producer families for Train pack builds
 - `AcceptedArtifactVersion`
   - explicit runtime artifact provenance
 
@@ -95,6 +99,7 @@ The current end-to-end workflow is:
 3. `{train}` must not optimize `{reply}` product orchestration.
 4. exported traces must include artifact version provenance.
 5. every cross-repo payload must carry `contract_version`.
+6. `{train}` must not scrape `{trinity}` runtime storage directly; it must consume governed exports.
 
 ## Initial Deliverable Issues
 

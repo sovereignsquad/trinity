@@ -40,12 +40,17 @@ The working solution was to turn the seam into a reviewed promotion workflow ins
 
 Current shape:
 
-1. `{trinity}` exports bounded training bundles
+1. `{trinity}` exports bounded training bundles when the proposal lane needs them
 2. `{trinity}` calls `{train}` by API or CLI
 3. `{train}` returns a proposal artifact plus eval report
 4. `{trinity}` reviews the proposal against runtime rules
 5. `{trinity}` accepts explicitly only if the review passes
 6. accepted runtime state is written with rollback-ready provenance
+
+Portable export note:
+
+- the governed source, outcome, memory, and delta export families are the broader `{train}` producer seam
+- `export-training-bundle` remains the narrower policy-learning handoff rather than the full export system
 
 This keeps `{train}` as proposal generator and `{trinity}` as runtime owner.
 

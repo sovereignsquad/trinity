@@ -173,12 +173,35 @@ struct TrinityAdapterModelConfigDocument: Codable {
     }
 }
 
+enum TrinityAdminStatusTone {
+    case info
+    case success
+    case warning
+
+    var color: Color {
+        switch self {
+        case .info: TrinityPalette.info
+        case .success: TrinityPalette.success
+        case .warning: TrinityPalette.warning
+        }
+    }
+}
+
+private struct TrinityAdminLoadedDocuments {
+    let foundationPolicy: TrinityFoundationPolicyDocument
+    let replyConfig: TrinityAdapterModelConfigDocument
+    let spotConfig: TrinityAdapterModelConfigDocument
+}
+
 @MainActor
 final class TrinityAdminSettingsStore: ObservableObject {
     @Published var foundationPolicy = TrinityFoundationPolicyDocument.default
     @Published var replyConfig = TrinityAdapterModelConfigDocument.default(adapterName: "reply")
     @Published var spotConfig = TrinityAdapterModelConfigDocument.default(adapterName: "spot")
     @Published var statusMessage = "Ready"
+    @Published var statusTone: TrinityAdminStatusTone = .info
+    @Published var activeOperation: String?
+    @Published var bannerMessage: String?
     @Published var lastSavedAt: Date?
 
     let foundationPolicyPath: URL
@@ -189,42 +212,87 @@ final class TrinityAdminSettingsStore: ObservableObject {
         self.foundationPolicyPath = Self.foundationPolicyPathURL()
         self.replyConfigPath = Self.adapterConfigPath(adapterName: "reply")
         self.spotConfigPath = Self.adapterConfigPath(adapterName: "spot")
-        reload()
-    }
-
-    func reload() {
-        do {
-            foundationPolicy = try loadDocument(
-                from: foundationPolicyPath,
-                fallback: .default
-            )
-            replyConfig = try loadDocument(
-                from: replyConfigPath,
-                fallback: .default(adapterName: "reply")
-            )
-            spotConfig = try loadDocument(
-                from: spotConfigPath,
-                fallback: .default(adapterName: "spot")
-            )
-            statusMessage = "Loaded machine-local settings."
-        } catch {
-            statusMessage = "Load failed: \(error.localizedDescription)"
+        Task {
+            await reload()
         }
     }
 
-    func saveAll() {
+    var isBusy: Bool {
+        activeOperation != nil
+    }
+
+    var configurableAdapters: [TrinityUIAdapterDescriptor] {
+        TrinityAdapterCatalog.configurableAdapters()
+    }
+
+    var unsupportedAdapters: [TrinityUIAdapterDescriptor] {
+        TrinityAdapterCatalog.unsupportedAdaptersForSettings()
+    }
+
+    func reload() async {
+        activeOperation = "Reloading local settings"
+        bannerMessage = nil
+        statusMessage = "Reloading machine-local settings..."
+        statusTone = .info
+
         do {
-            foundationPolicy = normalized(policy: foundationPolicy)
-            replyConfig = normalized(config: replyConfig)
-            spotConfig = normalized(config: spotConfig)
-            try saveDocument(foundationPolicy, to: foundationPolicyPath)
-            try saveDocument(replyConfig, to: replyConfigPath)
-            try saveDocument(spotConfig, to: spotConfigPath)
+            let loaded = try await Task.detached(priority: .userInitiated) {
+                TrinityAdminLoadedDocuments(
+                    foundationPolicy: try Self.loadDocument(
+                        from: Self.foundationPolicyPathURL(),
+                        fallback: .default
+                    ),
+                    replyConfig: try Self.loadDocument(
+                        from: Self.adapterConfigPath(adapterName: "reply"),
+                        fallback: .default(adapterName: "reply")
+                    ),
+                    spotConfig: try Self.loadDocument(
+                        from: Self.adapterConfigPath(adapterName: "spot"),
+                        fallback: .default(adapterName: "spot")
+                    )
+                )
+            }.value
+
+            foundationPolicy = loaded.foundationPolicy
+            replyConfig = loaded.replyConfig
+            spotConfig = loaded.spotConfig
+            statusMessage = "Loaded machine-local settings."
+            statusTone = .success
+        } catch {
+            bannerMessage = "Reload failed. The shell kept the current in-memory values so you can inspect or retry."
+            statusMessage = "Load failed: \(error.localizedDescription)"
+            statusTone = .warning
+        }
+        activeOperation = nil
+    }
+
+    func saveAll() async {
+        activeOperation = "Saving local settings"
+        bannerMessage = nil
+
+        do {
+            let normalizedPolicy = normalized(policy: foundationPolicy)
+            let normalizedReply = normalized(config: replyConfig)
+            let normalizedSpot = normalized(config: spotConfig)
+
+            try await Task.detached(priority: .userInitiated) {
+                try Self.saveDocument(normalizedPolicy, to: Self.foundationPolicyPathURL())
+                try Self.saveDocument(normalizedReply, to: Self.adapterConfigPath(adapterName: "reply"))
+                try Self.saveDocument(normalizedSpot, to: Self.adapterConfigPath(adapterName: "spot"))
+            }.value
+
+            foundationPolicy = normalizedPolicy
+            replyConfig = normalizedReply
+            spotConfig = normalizedSpot
             lastSavedAt = Date()
             statusMessage = "Saved foundation policy and adapter config."
+            statusTone = .success
         } catch {
+            bannerMessage = "Save failed. No files were intentionally reverted, so inspect the local paths and try again."
             statusMessage = "Save failed: \(error.localizedDescription)"
+            statusTone = .warning
         }
+        activeOperation = nil
     }
 
     func toggleSupportedProvider(
@@ -292,6 +360,56 @@ final class TrinityAdminSettingsStore: ObservableObject {
         )
     }
 
+    func configBinding(adapterName: String) -> Binding<TrinityAdapterModelConfigDocument> {
+        Binding(
+            get: {
+                switch adapterName {
+                case "reply": self.replyConfig
+                case "spot": self.spotConfig
+                default: .default(adapterName: adapterName)
+                }
+            },
+            set: { value in
+                switch adapterName {
+                case "reply": self.replyConfig = value
+                case "spot": self.spotConfig = value
+                default: break
+                }
+            }
+        )
+    }
+
+    func policyBinding(adapterName: String) -> Binding<TrinityAdapterFoundationPolicy> {
+        Binding(
+            get: {
+                switch adapterName {
+                case "reply": self.foundationPolicy.reply
+                case "spot": self.foundationPolicy.spot
+                default: TrinityAdapterFoundationPolicy(
+                    supportedProviders: [],
+                    preferredLiveProvider: nil,
+                    releaseGateRoles: []
+                )
+                }
+            },
+            set: { value in
+                switch adapterName {
+                case "reply": self.foundationPolicy.reply = value
+                case "spot": self.foundationPolicy.spot = value
+                default: break
+                }
+            }
+        )
+    }
+
+    func configPath(adapterName: String) -> URL {
+        switch adapterName {
+        case "reply": replyConfigPath
+        case "spot": spotConfigPath
+        default: Self.adapterConfigPath(adapterName: adapterName)
+        }
+    }
+
     private func applyAdapterPolicy(
         _ updatedPolicy: TrinityAdapterFoundationPolicy,
         adapterName: String
@@ -334,7 +452,7 @@ final class TrinityAdminSettingsStore: ObservableObject {
         return value
     }
 
-    private func loadDocument<T: Decodable>(
+    nonisolated private static func loadDocument<T: Decodable>(
         from url: URL,
         fallback: T
     ) throws -> T {
@@ -345,7 +463,7 @@ final class TrinityAdminSettingsStore: ObservableObject {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    private func saveDocument<T: Encodable>(_ document: T, to url: URL) throws {
+    nonisolated private static func saveDocument<T: Encodable>(_ document: T, to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -356,11 +474,11 @@ final class TrinityAdminSettingsStore: ObservableObject {
         try data.write(to: url, options: .atomic)
     }
 
-    private static func foundationPolicyPathURL() -> URL {
+    nonisolated private static func foundationPolicyPathURL() -> URL {
         runtimeRoot().appendingPathComponent("foundation_policy.json")
     }
 
-    private static func adapterConfigPath(adapterName: String) -> URL {
+    nonisolated private static func adapterConfigPath(adapterName: String) -> URL {
         let root = runtimeRoot().appendingPathComponent("adapters")
         let namespacedRoot = root.appendingPathComponent(adapterName)
         if adapterName == "reply" {
@@ -373,11 +491,11 @@ final class TrinityAdminSettingsStore: ObservableObject {
         return namespacedRoot.appendingPathComponent("model_config.json")
     }
 
-    private static func runtimeRoot() -> URL {
+    nonisolated private static func runtimeRoot() -> URL {
         appSupportRoot().appendingPathComponent("trinity_runtime")
     }
 
-    private static func appSupportRoot() -> URL {
+    nonisolated private static func appSupportRoot() -> URL {
         if let override = ProcessInfo.processInfo.environment["TRINITY_APP_SUPPORT_DIR"],
            !override.isEmpty
         {
@@ -418,21 +536,27 @@ struct TrinityAdminSettingsView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 18) {
             header
+            if let bannerMessage = store.bannerMessage {
+                TrinityInlineBanner(
+                    title: "Local settings need attention",
+                    bodyText: bannerMessage,
+                    color: TrinityPalette.warning
+                )
+            }
+            if store.isBusy {
+                TrinityLoadingState(title: store.activeOperation ?? "Working...")
+            }
             foundationPanel
-            adapterPanel(
-                title: "Reply Runtime",
-                subtitle: "Active live adapter config and preferred live-path policy.",
-                adapterName: "reply",
-                config: $store.replyConfig,
-                policy: $store.foundationPolicy.reply
-            )
-            adapterPanel(
-                title: "Spot Runtime",
-                subtitle: "Bounded second adapter config and supported-provider policy.",
-                adapterName: "spot",
-                config: $store.spotConfig,
-                policy: $store.foundationPolicy.spot
-            )
+            ForEach(store.configurableAdapters) { adapter in
+                adapterPanel(
+                    descriptor: adapter,
+                    config: store.configBinding(adapterName: adapter.adapterName),
+                    policy: store.policyBinding(adapterName: adapter.adapterName)
+                )
+            }
+            if !store.unsupportedAdapters.isEmpty {
+                unsupportedAdaptersPanel
+            }
         }
         .padding(24)
     }
@@ -440,16 +564,13 @@ struct TrinityAdminSettingsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Admin Settings")
-                        .font(.title.weight(.semibold))
-                        .foregroundStyle(TrinityPalette.textPrimary)
-                    Text("Machine-local foundation policy and active adapter model routing.")
-                        .foregroundStyle(TrinityPalette.textSecondary)
-                }
+                TrinitySectionHeader(
+                    title: "Admin Settings",
+                    subtitle: "Machine-local foundation policy and active adapter model routing."
+                )
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6) {
-                    TrinityStatusPill(label: store.statusMessage, color: TrinityPalette.info)
+                    TrinityStatusPill(label: store.statusMessage, color: store.statusTone.color)
                     if let lastSavedAt = store.lastSavedAt {
                         Text(lastSavedAt.formatted(date: .omitted, time: .standard))
                             .font(.caption)
@@ -459,16 +580,26 @@ struct TrinityAdminSettingsView: View {
             }
             HStack(spacing: 10) {
                 Button("Reload") {
-                    store.reload()
+                    Task {
+                        await store.reload()
+                    }
                 }
+                .disabled(store.isBusy)
                 Button("Save All") {
-                    store.saveAll()
+                    Task {
+                        await store.saveAll()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(store.isBusy)
                 Spacer()
-                pathBadge(label: "Foundation", path: store.foundationPolicyPath.path)
-                pathBadge(label: "Reply", path: store.replyConfigPath.path)
-                pathBadge(label: "Spot", path: store.spotConfigPath.path)
+                TrinityPathBadge(label: "Foundation", path: store.foundationPolicyPath.path)
+                ForEach(store.configurableAdapters) { adapter in
+                    TrinityPathBadge(
+                        label: adapter.displayName,
+                        path: store.configPath(adapterName: adapter.adapterName).path
+                    )
+                }
             }
         }
         .trinityPanel()
@@ -476,10 +607,10 @@ struct TrinityAdminSettingsView: View {
 
     private var foundationPanel: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Foundation Policy")
-                .font(.title3.weight(.semibold))
-            Text("This is the operator baseline used by the CLI release gates and preflight checks.")
-                .foregroundStyle(TrinityPalette.textSecondary)
+            TrinitySectionHeader(
+                title: "Foundation Policy",
+                subtitle: "This is the operator baseline used by the CLI release gates and preflight checks."
+            )
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Train Default Transport")
@@ -509,17 +640,16 @@ struct TrinityAdminSettingsView: View {
     }
 
     private func adapterPanel(
-        title: String,
-        subtitle: String,
-        adapterName: String,
+        descriptor: TrinityUIAdapterDescriptor,
         config: Binding<TrinityAdapterModelConfigDocument>,
         policy: Binding<TrinityAdapterFoundationPolicy>
     ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.title3.weight(.semibold))
-            Text(subtitle)
-                .foregroundStyle(TrinityPalette.textSecondary)
+        let adapterName = descriptor.adapterName
+        return VStack(alignment: .leading, spacing: 14) {
+            TrinitySectionHeader(
+                title: "\(descriptor.displayName) Runtime",
+                subtitle: descriptor.summary
+            )
             HStack(alignment: .top, spacing: 20) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Active Runtime Config")
@@ -620,28 +750,27 @@ struct TrinityAdminSettingsView: View {
         .trinityPanel()
     }
 
+    private var unsupportedAdaptersPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TrinitySectionHeader(
+                title: "Discovered Adapters",
+                subtitle: "These runtime adapters were found locally, but the macOS shell does not yet ship dedicated settings controls for them."
+            )
+            ForEach(store.unsupportedAdapters) { adapter in
+                TrinityInlineBanner(
+                    title: adapter.displayName,
+                    bodyText: "\(adapter.summary) Runtime path: \(store.configPath(adapterName: adapter.adapterName).path)",
+                    color: TrinityPalette.info
+                )
+            }
+        }
+        .trinityPanel()
+    }
+
     private func configField(label: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label)
-                .font(.subheadline.weight(.semibold))
+        TrinityFormField(label: label) {
             TextField(label, text: text)
                 .textFieldStyle(.roundedBorder)
         }
-    }
-
-    private func pathBadge(label: String, path: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(TrinityPalette.textPrimary)
-            Text(path)
-                .font(.caption2)
-                .foregroundStyle(TrinityPalette.textSecondary)
-                .lineLimit(2)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(TrinityPalette.panelAlt.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
