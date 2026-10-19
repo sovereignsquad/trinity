@@ -7,14 +7,14 @@ It is the runtime layer that turns normalized evidence plus scoped memory into r
 Current release:
 
 - `0.1.4`
-- [CHANGELOG.md](/Users/Shared/Projects/trinity/CHANGELOG.md)
+- [CHANGELOG.md](CHANGELOG.md)
 
 Quick entrypoints:
 
-- installation: [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
-- user guide: [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
-- settings and local policy/config: [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
-- CLI and runtime API surface: [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
+- installation: [docs/LOCAL_INSTALL.md](docs/LOCAL_INSTALL.md)
+- user guide: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- settings and local policy/config: [docs/SETTINGS_GUIDE.md](docs/SETTINGS_GUIDE.md)
+- CLI and runtime API surface: [docs/API_SURFACE.md](docs/API_SURFACE.md)
 
 Current system split:
 
@@ -30,12 +30,12 @@ This repository now exposes a generic runtime seam with adapter-aware storage, p
 
 Implemented today:
 
-- reusable workflow core under [core/trinity_core/workflow](/Users/Shared/Projects/trinity/core/trinity_core/workflow)
-- adapter helpers under [core/trinity_core/adapters](/Users/Shared/Projects/trinity/core/trinity_core/adapters)
-- provider-neutral model adapters under [core/trinity_core/adapters/model](/Users/Shared/Projects/trinity/core/trinity_core/adapters/model)
-- generic runtime facade in [core/trinity_core/runtime.py](/Users/Shared/Projects/trinity/core/trinity_core/runtime.py)
-- adapter-scoped storage helpers in [core/trinity_core/ops/runtime_storage.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_storage.py)
-- generic CLI surface in [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
+- reusable workflow core under [core/trinity_core/workflow](core/trinity_core/workflow)
+- adapter helpers under [core/trinity_core/adapters](core/trinity_core/adapters)
+- provider-neutral model adapters under [core/trinity_core/adapters/model](core/trinity_core/adapters/model)
+- generic runtime facade in [core/trinity_core/runtime.py](core/trinity_core/runtime.py)
+- adapter-scoped storage helpers in [core/trinity_core/ops/runtime_storage.py](core/trinity_core/ops/runtime_storage.py)
+- generic CLI surface in [core/trinity_core/cli.py](core/trinity_core/cli.py)
 - first mature downstream drafting adapter for `{reply}`
 - one bounded reasoning adapter slice for `{spot}`
 - explicit score-governance lifecycle across acceptance, release readiness, triage queues, triage resolution, and release-decision lineage
@@ -62,9 +62,9 @@ This repository is for:
 
 If you are integrating a new app, start here:
 
-- [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)
-- [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
-- [docs/THIRD_APP_PREPARATION_PLAN.md](/Users/Shared/Projects/trinity/docs/THIRD_APP_PREPARATION_PLAN.md)
+- [docs/INTEGRATING_NEW_APP.md](docs/INTEGRATING_NEW_APP.md)
+- [docs/ADAPTER_AUTHORING_GUIDE.md](docs/ADAPTER_AUTHORING_GUIDE.md)
+- [docs/THIRD_APP_PREPARATION_PLAN.md](docs/THIRD_APP_PREPARATION_PLAN.md)
 
 Implemented model-provider support:
 
@@ -111,7 +111,7 @@ Primary responsibility split:
 
 ## CLI
 
-The CLI surface is now large enough that this README only summarizes the main categories. The authoritative command list lives in [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md).
+The CLI surface is now large enough that this README only summarizes the main categories. The authoritative command list lives in [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md).
 
 Preferred generic commands:
 
@@ -252,10 +252,10 @@ Reply compatibility behavior:
 
 Local install and dependency setup:
 
-- [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
-- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
-- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
-- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
+- [docs/LOCAL_INSTALL.md](docs/LOCAL_INSTALL.md)
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- [docs/SETTINGS_GUIDE.md](docs/SETTINGS_GUIDE.md)
+- [docs/API_SURFACE.md](docs/API_SURFACE.md)
 
 Bootstrap:
 
@@ -312,33 +312,33 @@ Do not:
 
 ## Read First
 
-- [docs/STATUS.md](/Users/Shared/Projects/trinity/docs/STATUS.md)
-- [docs/TRINITY_RESTORATION_PLAN.md](/Users/Shared/Projects/trinity/docs/TRINITY_RESTORATION_PLAN.md)
-- [docs/TRINITY_CORE_LOOP.md](/Users/Shared/Projects/trinity/docs/TRINITY_CORE_LOOP.md)
-- [docs/MEMORY_ARCHITECTURE.md](/Users/Shared/Projects/trinity/docs/MEMORY_ARCHITECTURE.md)
-- [docs/MINORITY_REPORT_CONTRACT.md](/Users/Shared/Projects/trinity/docs/MINORITY_REPORT_CONTRACT.md)
-- [docs/HITL_ESCALATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/HITL_ESCALATION_CONTRACT.md)
-- [docs/REPOSITORY_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPOSITORY_CONTRACT.md)
-- [docs/PROVIDER_COMPARISON_HARNESS.md](/Users/Shared/Projects/trinity/docs/PROVIDER_COMPARISON_HARNESS.md)
-- [docs/PRODUCTION_TRACE_EVAL_DATASETS.md](/Users/Shared/Projects/trinity/docs/PRODUCTION_TRACE_EVAL_DATASETS.md)
-- [docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md](/Users/Shared/Projects/trinity/docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md)
-- [docs/CONTROL_PLANE_SEAM.md](/Users/Shared/Projects/trinity/docs/CONTROL_PLANE_SEAM.md)
-- [docs/GOBII_RECURRING_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_RECURRING_WORKFLOW.md)
-- [docs/GOBII_NORMALIZATION_CONTRACT.md](/Users/Shared/Projects/trinity/docs/GOBII_NORMALIZATION_CONTRACT.md)
-- [docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md](/Users/Shared/Projects/trinity/docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md)
-- [docs/TRINITY_OVERVIEW.md](/Users/Shared/Projects/trinity/docs/TRINITY_OVERVIEW.md)
-- [docs/RELATIONSHIP_HEALTH.md](/Users/Shared/Projects/trinity/docs/RELATIONSHIP_HEALTH.md)
-- [docs/RELATIONSHIP_HARDENING_PLAN.md](/Users/Shared/Projects/trinity/docs/RELATIONSHIP_HARDENING_PLAN.md)
-- [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
-- [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
-- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
-- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
-- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
-- [docs/INTEGRATING_NEW_APP.md](/Users/Shared/Projects/trinity/docs/INTEGRATING_NEW_APP.md)
-- [docs/ADAPTER_AUTHORING_GUIDE.md](/Users/Shared/Projects/trinity/docs/ADAPTER_AUTHORING_GUIDE.md)
-- [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
-- [docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md](/Users/Shared/Projects/trinity/docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md)
-- [docs/POLICY_LOOP_REPO_BREAKDOWN.md](/Users/Shared/Projects/trinity/docs/POLICY_LOOP_REPO_BREAKDOWN.md)
+- [docs/STATUS.md](docs/STATUS.md)
+- [docs/TRINITY_RESTORATION_PLAN.md](docs/TRINITY_RESTORATION_PLAN.md)
+- [docs/TRINITY_CORE_LOOP.md](docs/TRINITY_CORE_LOOP.md)
+- [docs/MEMORY_ARCHITECTURE.md](docs/MEMORY_ARCHITECTURE.md)
+- [docs/MINORITY_REPORT_CONTRACT.md](docs/MINORITY_REPORT_CONTRACT.md)
+- [docs/HITL_ESCALATION_CONTRACT.md](docs/HITL_ESCALATION_CONTRACT.md)
+- [docs/REPOSITORY_CONTRACT.md](docs/REPOSITORY_CONTRACT.md)
+- [docs/PROVIDER_COMPARISON_HARNESS.md](docs/PROVIDER_COMPARISON_HARNESS.md)
+- [docs/PRODUCTION_TRACE_EVAL_DATASETS.md](docs/PRODUCTION_TRACE_EVAL_DATASETS.md)
+- [docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md](docs/LIVE_BRAIN_RUNTIME_ARCHITECTURE.md)
+- [docs/CONTROL_PLANE_SEAM.md](docs/CONTROL_PLANE_SEAM.md)
+- [docs/GOBII_RECURRING_WORKFLOW.md](docs/GOBII_RECURRING_WORKFLOW.md)
+- [docs/GOBII_NORMALIZATION_CONTRACT.md](docs/GOBII_NORMALIZATION_CONTRACT.md)
+- [docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md](docs/GOBII_PROFILE_ENRICHMENT_WORKFLOW.md)
+- [docs/TRINITY_OVERVIEW.md](docs/TRINITY_OVERVIEW.md)
+- [docs/RELATIONSHIP_HEALTH.md](docs/RELATIONSHIP_HEALTH.md)
+- [docs/RELATIONSHIP_HARDENING_PLAN.md](docs/RELATIONSHIP_HARDENING_PLAN.md)
+- [docs/CLI_REFERENCE.md](docs/CLI_REFERENCE.md)
+- [docs/LOCAL_INSTALL.md](docs/LOCAL_INSTALL.md)
+- [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
+- [docs/SETTINGS_GUIDE.md](docs/SETTINGS_GUIDE.md)
+- [docs/API_SURFACE.md](docs/API_SURFACE.md)
+- [docs/INTEGRATING_NEW_APP.md](docs/INTEGRATING_NEW_APP.md)
+- [docs/ADAPTER_AUTHORING_GUIDE.md](docs/ADAPTER_AUTHORING_GUIDE.md)
+- [docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md](docs/REPLY_PRODUCT_ADAPTER_CONTRACT.md)
+- [docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md](docs/REPLY_TRINITY_TRAIN_OPERATING_CONTRACT.md)
+- [docs/POLICY_LOOP_REPO_BREAKDOWN.md](docs/POLICY_LOOP_REPO_BREAKDOWN.md)
 
 ## License
 

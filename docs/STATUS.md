@@ -72,7 +72,7 @@ The current CLI is generic-first and includes:
 
 Authoritative command reference:
 
-- [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
+- [docs/CLI_REFERENCE.md](../docs/CLI_REFERENCE.md)
 
 ### Relation Health And External Seams
 
@@ -88,8 +88,8 @@ The relation-hardening tranche is implemented in code:
 
 The supporting implementation lives in:
 
-- [core/trinity_core/ops/relation_health.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/relation_health.py)
-- [core/trinity_core/ops/train_client.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/train_client.py)
+- [core/trinity_core/ops/relation_health.py](../core/trinity_core/ops/relation_health.py)
+- [core/trinity_core/ops/train_client.py](../core/trinity_core/ops/train_client.py)
 
 ### Code Comments And Docstrings
 
@@ -117,11 +117,11 @@ The supporting implementation lives in:
 
 Primary portable-export implementation:
 
-- [core/trinity_core/schemas/portable_exports.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/portable_exports.py)
-- [core/trinity_core/ops/portable_exports.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/portable_exports.py)
-- [core/trinity_core/schemas/runtime_candidates.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/runtime_candidates.py)
-- [core/trinity_core/ops/runtime_candidate_imports.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/runtime_candidate_imports.py)
-- [docs/PORTABLE_EXPORTS.md](/Users/Shared/Projects/trinity/docs/PORTABLE_EXPORTS.md)
+- [core/trinity_core/schemas/portable_exports.py](../core/trinity_core/schemas/portable_exports.py)
+- [core/trinity_core/ops/portable_exports.py](../core/trinity_core/ops/portable_exports.py)
+- [core/trinity_core/schemas/runtime_candidates.py](../core/trinity_core/schemas/runtime_candidates.py)
+- [core/trinity_core/ops/runtime_candidate_imports.py](../core/trinity_core/ops/runtime_candidate_imports.py)
+- [docs/PORTABLE_EXPORTS.md](../docs/PORTABLE_EXPORTS.md)
 
 ### Ops And Control Plane
 
@@ -145,9 +145,9 @@ Primary portable-export implementation:
 
 ### Operator Documentation
 
-- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md) now summarizes the practical operator path after install
-- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md) now documents machine-local foundation policy, adapter config, shell parity, and path behavior
-- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md) now summarizes the public CLI, runtime facade, and machine-readable status surfaces
+- [docs/USER_GUIDE.md](../docs/USER_GUIDE.md) now summarizes the practical operator path after install
+- [docs/SETTINGS_GUIDE.md](../docs/SETTINGS_GUIDE.md) now documents machine-local foundation policy, adapter config, shell parity, and path behavior
+- [docs/API_SURFACE.md](../docs/API_SURFACE.md) now summarizes the public CLI, runtime facade, and machine-readable status surfaces
 
 ## Current Verified Local State
 
@@ -248,3 +248,7 @@ Most relevant recent verification:
 3. Keep Spot explicitly documented as bounded until its product-side workflow actually expands.
 4. Decide whether Train API should be restored locally or whether CLI should remain the normal enforced transport.
 5. Configure Gobii only when the bounded browser-agent lanes are actually needed.
+
+## Documentation navigation — 2026-10-19
+
+Repository-local Markdown links in README, Status and Handover now resolve from GitHub and arbitrary clone locations. Machine-local command examples and the dated runtime/provider observations above retain their original meaning. This navigation repair does not assert current live provider or downstream health.
