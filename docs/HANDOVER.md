@@ -18,7 +18,7 @@ What is true now:
 - the foundation-policy and native Admin settings work remains landed
 - `{trinity}` now has explicit source, outcome, memory, and delta export families for `{train}`
 - the old bounded `export-training-bundle` seam still exists, but it is no longer the only Train-facing export path
-- the new portable export seam is documented in [docs/PORTABLE_EXPORTS.md](/Users/Shared/Projects/trinity/docs/PORTABLE_EXPORTS.md)
+- the new portable export seam is documented in [docs/PORTABLE_EXPORTS.md](../docs/PORTABLE_EXPORTS.md)
 - deterministic tests now cover stable serialization, cross-tenant rejection, Reply-origin mapping, family separation, attachment linkage, and cutoff-lineage validation
 - the macOS governance page now loads persisted artifacts off-main and distinguishes missing data from unreadable data
 - the macOS Admin settings page now reloads and saves config off-main, shows in-flight state, and derives adapter panels from the shared adapter catalog
@@ -92,32 +92,32 @@ PYTHONPATH=core uv run python -m trinity_core.cli provider-smoke --adapter reply
 
 Primary SSOT:
 
-- [README.md](/Users/Shared/Projects/trinity/README.md)
-- [docs/API_SURFACE.md](/Users/Shared/Projects/trinity/docs/API_SURFACE.md)
-- [docs/CLI_REFERENCE.md](/Users/Shared/Projects/trinity/docs/CLI_REFERENCE.md)
-- [docs/LOCAL_INSTALL.md](/Users/Shared/Projects/trinity/docs/LOCAL_INSTALL.md)
-- [docs/USER_GUIDE.md](/Users/Shared/Projects/trinity/docs/USER_GUIDE.md)
-- [docs/SETTINGS_GUIDE.md](/Users/Shared/Projects/trinity/docs/SETTINGS_GUIDE.md)
-- [docs/PORTABLE_EXPORTS.md](/Users/Shared/Projects/trinity/docs/PORTABLE_EXPORTS.md)
-- [docs/STATUS.md](/Users/Shared/Projects/trinity/docs/STATUS.md)
-- [docs/RELATIONSHIP_HEALTH.md](/Users/Shared/Projects/trinity/docs/RELATIONSHIP_HEALTH.md)
+- [README.md](../README.md)
+- [docs/API_SURFACE.md](../docs/API_SURFACE.md)
+- [docs/CLI_REFERENCE.md](../docs/CLI_REFERENCE.md)
+- [docs/LOCAL_INSTALL.md](../docs/LOCAL_INSTALL.md)
+- [docs/USER_GUIDE.md](../docs/USER_GUIDE.md)
+- [docs/SETTINGS_GUIDE.md](../docs/SETTINGS_GUIDE.md)
+- [docs/PORTABLE_EXPORTS.md](../docs/PORTABLE_EXPORTS.md)
+- [docs/STATUS.md](../docs/STATUS.md)
+- [docs/RELATIONSHIP_HEALTH.md](../docs/RELATIONSHIP_HEALTH.md)
 
 Implementation seams:
 
-- [core/trinity_core/cli.py](/Users/Shared/Projects/trinity/core/trinity_core/cli.py)
-- [core/trinity_core/schemas/portable_exports.py](/Users/Shared/Projects/trinity/core/trinity_core/schemas/portable_exports.py)
-- [core/trinity_core/ops/portable_exports.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/portable_exports.py)
-- [core/trinity_core/ops/foundation_policy.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/foundation_policy.py)
-- [core/trinity_core/ops/relation_health.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/relation_health.py)
-- [core/trinity_core/ops/train_client.py](/Users/Shared/Projects/trinity/core/trinity_core/ops/train_client.py)
-- [apps/macos/Sources/TrinityApp/AdminSettingsSurface.swift](/Users/Shared/Projects/trinity/apps/macos/Sources/TrinityApp/AdminSettingsSurface.swift)
-- [apps/macos/Sources/TrinityApp/GovernanceSurface.swift](/Users/Shared/Projects/trinity/apps/macos/Sources/TrinityApp/GovernanceSurface.swift)
-- [apps/macos/Sources/TrinityApp/AdapterCatalog.swift](/Users/Shared/Projects/trinity/apps/macos/Sources/TrinityApp/AdapterCatalog.swift)
-- [apps/macos/Sources/TrinityApp/ConstellationUI.swift](/Users/Shared/Projects/trinity/apps/macos/Sources/TrinityApp/ConstellationUI.swift)
+- [core/trinity_core/cli.py](../core/trinity_core/cli.py)
+- [core/trinity_core/schemas/portable_exports.py](../core/trinity_core/schemas/portable_exports.py)
+- [core/trinity_core/ops/portable_exports.py](../core/trinity_core/ops/portable_exports.py)
+- [core/trinity_core/ops/foundation_policy.py](../core/trinity_core/ops/foundation_policy.py)
+- [core/trinity_core/ops/relation_health.py](../core/trinity_core/ops/relation_health.py)
+- [core/trinity_core/ops/train_client.py](../core/trinity_core/ops/train_client.py)
+- [apps/macos/Sources/TrinityApp/AdminSettingsSurface.swift](../apps/macos/Sources/TrinityApp/AdminSettingsSurface.swift)
+- [apps/macos/Sources/TrinityApp/GovernanceSurface.swift](../apps/macos/Sources/TrinityApp/GovernanceSurface.swift)
+- [apps/macos/Sources/TrinityApp/AdapterCatalog.swift](../apps/macos/Sources/TrinityApp/AdapterCatalog.swift)
+- [apps/macos/Sources/TrinityApp/ConstellationUI.swift](../apps/macos/Sources/TrinityApp/ConstellationUI.swift)
 
 Deterministic portable-export tests:
 
-- [tests/test_portable_exports.py](/Users/Shared/Projects/trinity/tests/test_portable_exports.py)
+- [tests/test_portable_exports.py](../tests/test_portable_exports.py)
 
 ## Open Operational Gaps
 
@@ -163,7 +163,7 @@ If the next task is product/runtime:
   - summary candidates -> `memory_summaries` + retrieval docs
   - reply-support candidates -> retrieval docs
 - deterministic proof coverage now exists in:
-  - [tests/test_runtime_candidate_imports.py](/Users/Shared/Projects/trinity/tests/test_runtime_candidate_imports.py)
+  - [tests/test_runtime_candidate_imports.py](../tests/test_runtime_candidate_imports.py)
 - `{reply}` now consumes this adopted knowledge in the live draft path through Trinity `runtime_diagnostics`
 - `ReplyRuntime.suggest(...)` now reports bounded imported-knowledge usage under:
   - `runtime_diagnostics.imported_runtime_knowledge`
@@ -186,3 +186,7 @@ If the next task is product/runtime:
   - `2` `final_outcome`
 - this proves the portable export seam is no longer the blocker for the first honest MCS corpus rebuild
 - the remaining blocker is upstream supervision volume in `{reply}`, not portable export correctness in `{trinity}`
+
+## 2026-10-19 Documentation Navigation Handover
+
+README, Status and Handover links now use repository-relative destinations instead of one machine's checkout path. All changed destinations were checked against the pinned source tree. Runtime code, package version and operator configuration are unchanged. See the documentation entry in ../CHANGELOG.md for scope; resume operational checks only when doing the corresponding runtime task.

@@ -29,7 +29,9 @@ class MistralCLIModelProvider:
     model_binding: str = "advisory"
     provider_name: str = "mistral-cli"
     supports_model_inventory: bool = False
-    request_diagnostics: list[dict[str, Any]] = field(default_factory=list, init=False, repr=False, compare=False)
+    request_diagnostics: list[dict[str, Any]] = field(
+        default_factory=list, init=False, repr=False, compare=False
+    )
 
     def reset_request_diagnostics(self) -> None:
         self.request_diagnostics.clear()
@@ -84,7 +86,9 @@ class MistralCLIModelProvider:
             "provider": self.provider_name,
             "model": route.model,
             "model_id": route.model_id,
-            "timeout_seconds": timeout_seconds if timeout_seconds is not None else self.timeout_seconds,
+            "timeout_seconds": (
+                timeout_seconds if timeout_seconds is not None else self.timeout_seconds
+            ),
             "command": command[:4],
         }
         try:

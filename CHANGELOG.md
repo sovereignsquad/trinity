@@ -2,6 +2,21 @@
 
 All notable release-facing changes to `{trinity}` are recorded here.
 
+## Unreleased documentation — 2026-10-19
+
+### New Features
+- No runtime features added; existing navigation is usable from GitHub and other clone locations.
+
+### Fixed Bugs
+- Replace machine-specific Markdown link destinations in README, Status and Handover with source-checked repository-relative links.
+
+### Known Issues
+- Machine-local shell examples remain examples. Existing dated provider and downstream-health observations are not revalidated by this documentation repair.
+- Other documents may still contain machine-specific links; this scope covers the three entry points above. The application release remains 0.1.4.
+
+### Future Roadmap
+- Continue the separate portfolio destination, identity and documentation coverage review.
+
 ## 0.1.4 - 2026-05-19
 
 This release tightens the live Reply compose contract so prepared drafts are treated as a hot-path runtime responsibility instead of a best-effort background artifact only.

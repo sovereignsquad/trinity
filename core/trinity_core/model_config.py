@@ -212,7 +212,9 @@ def load_model_config(adapter_name: str) -> TrinityModelConfig:
     )
 
 
-def resolve_runtime_model_config(config: TrinityModelConfig) -> tuple[TrinityModelConfig, dict[str, Any]]:
+def resolve_runtime_model_config(
+    config: TrinityModelConfig,
+) -> tuple[TrinityModelConfig, dict[str, Any]]:
     provider = str(config.provider or "").strip().lower()
     resolution = {
         "configured_provider": provider or "deterministic",
