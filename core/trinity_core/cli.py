@@ -252,9 +252,21 @@ def main(argv: list[str] | None = None) -> int:
         for index, item in enumerate(items):
             try:
                 result = runtime.record_outcome(outcome_event_from_payload(item))
-                results.append({"index": index, "cycle_id": str(item.get("cycle_id") or ""), "result": result})
+                results.append(
+                    {
+                        "index": index,
+                        "cycle_id": str(item.get("cycle_id") or ""),
+                        "result": result,
+                    }
+                )
             except Exception as exc:  # pragma: no cover - exercised by live operator paths
-                errors.append({"index": index, "cycle_id": str(item.get("cycle_id") or ""), "message": str(exc)})
+                errors.append(
+                    {
+                        "index": index,
+                        "cycle_id": str(item.get("cycle_id") or ""),
+                        "message": str(exc),
+                    }
+                )
         _write_json(
             {
                 "status": "ok" if not errors else "partial",
@@ -288,9 +300,21 @@ def main(argv: list[str] | None = None) -> int:
         for index, item in enumerate(items):
             try:
                 result = runtime.ingest_memory_event(memory_event_from_payload(item))
-                results.append({"index": index, "source_ref": str(item.get("source_ref") or ""), "result": result})
+                results.append(
+                    {
+                        "index": index,
+                        "source_ref": str(item.get("source_ref") or ""),
+                        "result": result,
+                    }
+                )
             except Exception as exc:  # pragma: no cover - exercised by live operator paths
-                errors.append({"index": index, "source_ref": str(item.get("source_ref") or ""), "message": str(exc)})
+                errors.append(
+                    {
+                        "index": index,
+                        "source_ref": str(item.get("source_ref") or ""),
+                        "message": str(exc),
+                    }
+                )
         _write_json(
             {
                 "status": "ok" if not errors else "partial",
@@ -317,9 +341,21 @@ def main(argv: list[str] | None = None) -> int:
         for index, item in enumerate(items):
             try:
                 result = runtime.register_document(document_record_from_payload(item))
-                results.append({"index": index, "document_ref": str(item.get("document_ref") or ""), "result": result})
+                results.append(
+                    {
+                        "index": index,
+                        "document_ref": str(item.get("document_ref") or ""),
+                        "result": result,
+                    }
+                )
             except Exception as exc:  # pragma: no cover - exercised by live operator paths
-                errors.append({"index": index, "document_ref": str(item.get("document_ref") or ""), "message": str(exc)})
+                errors.append(
+                    {
+                        "index": index,
+                        "document_ref": str(item.get("document_ref") or ""),
+                        "message": str(exc),
+                    }
+                )
         _write_json(
             {
                 "status": "ok" if not errors else "partial",
@@ -1676,7 +1712,9 @@ def main(argv: list[str] | None = None) -> int:
                 inventory_supported = provider_runtime.model_provider.supports_model_inventory
                 payload["provider_status"] = "online" if inventory_supported else "configured"
                 if payload["provider_fallback"]["applied"]:
-                    payload["provider_status"] = "fallback_online" if inventory_supported else "fallback_configured"
+                    payload["provider_status"] = (
+                        "fallback_online" if inventory_supported else "fallback_configured"
+                    )
                 payload["provider_inventory_supported"] = inventory_supported
                 payload["available_models"] = list(models)
                 for role_name, route in (
@@ -1936,7 +1974,10 @@ def _build_generic_parsers(subparsers: Any) -> None:
 
     document_batch_parser = subparsers.add_parser(
         "register-documents-batch",
-        help="Register a bounded batch of product documents with runtime-owned memory and retrieval state.",
+        help=(
+            "Register a bounded batch of product documents "
+            "with runtime-owned memory and retrieval state."
+        ),
     )
     _add_adapter_argument(document_batch_parser)
     document_batch_parser.add_argument("--input-file")
@@ -2071,7 +2112,10 @@ def _build_generic_parsers(subparsers: Any) -> None:
 
     adopt_runtime_candidate_parser = subparsers.add_parser(
         "adopt-runtime-candidate-import",
-        help="Adopt one staged Train runtime-candidate import into governed runtime memory and retrieval.",
+        help=(
+            "Adopt one staged Train runtime-candidate import "
+            "into governed runtime memory and retrieval."
+        ),
     )
     _add_adapter_argument(adopt_runtime_candidate_parser)
     adopt_runtime_candidate_parser.add_argument("--company-id", required=True)

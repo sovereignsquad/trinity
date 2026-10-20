@@ -155,7 +155,9 @@ def _seed_runtime_state(
             disposition=DraftOutcomeDisposition.EDITED_THEN_SENT,
             occurred_at=datetime(2026, 5, 16, 10, 15, tzinfo=UTC),
             candidate_id=later_ranked.drafts[0].candidate_id,
-            original_draft_text="I can send the final update today after I confirm the last figure.",
+            original_draft_text=(
+                "I can send the final update today after I confirm the last figure."
+            ),
             final_text="I can send the final update today after I confirm the last figure.",
             edit_distance=0.25,
         )
@@ -332,7 +334,8 @@ def test_record_outcome_recovers_missing_cycle_with_synthetic_historical_payload
     assert final_records
     assert final_records[0]["payload"]["final_text"] == "Kérek egy linket"
     assert all(
-        str(record["payload"].get("metadata", {}).get("historical_outcome_backfill") or "").lower() != "true"
+        str(record["payload"].get("metadata", {}).get("historical_outcome_backfill") or "").lower()
+        != "true"
         for record in source_export["export"]["records"]
         if record["record_type"] == "thread_snapshot"
     )

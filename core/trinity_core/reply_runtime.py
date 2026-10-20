@@ -188,16 +188,22 @@ class ReplyRuntime:
             company_id=snapshot.company_id,
             channel=snapshot.channel,
         )
-        runtime_diagnostics["stage_timings"]["policy_resolution_ms"] = _elapsed_ms(policy_started_perf)
+        runtime_diagnostics["stage_timings"]["policy_resolution_ms"] = _elapsed_ms(
+            policy_started_perf
+        )
         active_policy_record = resolved_policy.accepted_policy
         active_policy = active_policy_record.policy if active_policy_record else None
         memory_started_perf = perf_counter()
         memory_context = self.memory_resolver.resolve_for_snapshot(snapshot)
         memory_profile = build_runtime_memory_profile(memory_context)
-        runtime_diagnostics["stage_timings"]["memory_resolution_ms"] = _elapsed_ms(memory_started_perf)
+        runtime_diagnostics["stage_timings"]["memory_resolution_ms"] = _elapsed_ms(
+            memory_started_perf
+        )
         evidence_started_perf = perf_counter()
         evidence_units = self._build_evidence(snapshot)
-        runtime_diagnostics["stage_timings"]["evidence_build_ms"] = _elapsed_ms(evidence_started_perf)
+        runtime_diagnostics["stage_timings"]["evidence_build_ms"] = _elapsed_ms(
+            evidence_started_perf
+        )
         pipeline_started_perf = perf_counter()
         pipeline = execute_candidate_pipeline(
             GeneratorExecutionInput(
@@ -330,8 +336,9 @@ class ReplyRuntime:
             accepted_artifact_version=artifact,
             runtime_diagnostics={},
         )
-        runtime_diagnostics["stage_timings"]["post_process_ms"] = _elapsed_ms(pipeline_started_perf) - (
-            runtime_diagnostics["stage_timings"].get("pipeline_ms", 0.0) or 0.0
+        runtime_diagnostics["stage_timings"]["post_process_ms"] = (
+            _elapsed_ms(pipeline_started_perf)
+            - (runtime_diagnostics["stage_timings"].get("pipeline_ms", 0.0) or 0.0)
         )
         persist_started_perf = perf_counter()
         trace = RuntimeTraceExport(
@@ -1245,7 +1252,9 @@ class ReplyRuntime:
         diagnostics = {
             "provider": self.model_config.provider,
             "configured_provider": self.config_resolution.get("configured_provider"),
-            "effective_provider": self.config_resolution.get("effective_provider", self.model_config.provider),
+            "effective_provider": self.config_resolution.get(
+                "effective_provider", self.model_config.provider
+            ),
             "provider_fallback": {
                 "applied": bool(self.config_resolution.get("fallback_applied")),
                 "reason": self.config_resolution.get("reason"),
@@ -1278,7 +1287,9 @@ class ReplyRuntime:
                 return runner(stage_input)
             finally:
                 if self._active_runtime_diagnostics is not None:
-                    self._active_runtime_diagnostics["stage_timings"][f"{stage_name}_stage_ms"] = _elapsed_ms(started_perf)
+                    self._active_runtime_diagnostics["stage_timings"][
+                        f"{stage_name}_stage_ms"
+                    ] = _elapsed_ms(started_perf)
         return wrapped
 
     def _note_stage_fallback(self, stage_name: str, reason: str, detail: str) -> None:
